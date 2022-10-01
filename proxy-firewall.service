@@ -1,0 +1,29 @@
+[Unit]
+Description=Layer 7 Proxy Firewall
+After=network.target
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+ExecStart=/etc/proxy-firewall/bin/proxy-firewall
+ExecStop=/bin/kill -s TERM $MAINPID
+WorkingDirectory=/etc/proxy-firewall
+User=root
+Group=root
+Restart=always
+RestartSec=5
+StandardOutput=append:/etc/proxy-firewall/log/proxy-firewall.log
+StandardError=append:/etc/proxy-firewall/log/proxy-firewall.log
+SyslogIdentifier=%n
+
+TimeoutStopSec=0
+Restart=always
+User=root
+Group=root
+RuntimeDirectory=/etc/proxy-firewall
+RuntimeDirectoryMode=2755
+
+UMask=007
+PrivateTmp=yes
+LimitNOFILE=65535
