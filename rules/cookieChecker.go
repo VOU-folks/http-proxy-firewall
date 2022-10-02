@@ -3,6 +3,7 @@ package rules
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -20,6 +21,10 @@ type CookieStorageClient struct {
 	enabled bool
 }
 
+func (csc *CookieStorageClient) Key(sid string) string {
+	return fmt.Sprintf("cookie:%s", sid)
+}
+
 func (csc *CookieStorageClient) IsActive() bool {
 	return csc.client != nil && csc.enabled
 }
@@ -35,7 +40,7 @@ func (csc *CookieStorageClient) Start() error {
 }
 
 func (csc *CookieStorageClient) Store(record *CookieRecord) *CookieRecord {
-	_, err := csc.client.HSet(context.Background(), "COOKIES", record.Sid, record).Result()
+	_, err := csc.client.SetEX(context.Background(), csc.Key(record.Sid), record, cookieRecordExtensionTime).Result()
 	if err != nil {
 		log.Println("Store,", record.Sid, err.Error())
 	}
@@ -47,7 +52,7 @@ func (csc *CookieStorageClient) Get(sid string) *CookieRecord {
 	var cookieRecord *CookieRecord
 	var cookieData string
 
-	cookieData, _ = csc.client.HGet(context.Background(), "COOKIES", sid).Result()
+	cookieData, _ = csc.client.Get(context.Background(), csc.Key(sid)).Result()
 	if cookieData != "" {
 		err := json.Unmarshal([]byte(cookieData), &cookieRecord)
 		if err != nil {
@@ -65,7 +70,7 @@ func (csc *CookieStorageClient) Get(sid string) *CookieRecord {
 }
 
 func (csc *CookieStorageClient) Delete(sid string) {
-	_, _ = csc.client.HDel(context.Background(), "COOKIES", sid).Result()
+	_, _ = csc.client.Del(context.Background(), csc.Key(sid)).Result()
 }
 
 func init() {
@@ -94,7 +99,7 @@ func init() {
 	}
 }
 
-var cookieRecordExtensionTime = time.Hour * 24 * 3
+var cookieRecordExtensionTime = time.Hour * 24
 var sidHashSize = 32
 var cookieRecordHashSize = 16
 var sidCookieLifetime = time.Hour * 24 * 365
