@@ -13,7 +13,8 @@ import (
 var filters = make([]FilterInterface, 0)
 
 func init() {
-	filters = append(filters, rules.IpFilter{})
+	filters = append(filters, &rules.IpFilter{})
+	filters = append(filters, &rules.CookieCheckpoint{})
 }
 
 func Handler(c *gin.Context) {

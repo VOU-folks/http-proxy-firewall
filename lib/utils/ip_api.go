@@ -32,7 +32,7 @@ type IPAPIResponse struct {
 func ResolveUsingIPAPI(ip string) *IPAPIResponse {
 	var err error
 
-	url := fmt.Sprintf("http://ip-api.com/json/#{ip}", ip)
+	url := fmt.Sprintf("http://ip-api.com/json/%s", ip)
 	resp, err := http.Get(url)
 	if err != nil {
 		log.Println("ResolveUsingIPAPI", err.Error())

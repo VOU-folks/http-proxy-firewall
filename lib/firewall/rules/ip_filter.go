@@ -8,7 +8,6 @@ import (
 	"http-proxy-firewall/lib/db/country"
 	"http-proxy-firewall/lib/db/google"
 	. "http-proxy-firewall/lib/firewall/interfaces"
-	"http-proxy-firewall/lib/firewall/methods"
 	"http-proxy-firewall/lib/utils/slices"
 )
 
@@ -55,59 +54,40 @@ func isIpWhitelisted(ipAddress string) bool {
 
 var allowedCountries = []string{
 	"Azerbaijan",
-	"Turkey",
-	"Ukraine",
-	"Georgia",
-	"Russia",
-	"Portugal",
+	// "Turkey",
+	// "Ukraine",
+	// "Georgia",
+	// "Russia",
+	// "Portugal",
 }
 
 func isCountryAllowed(country string) bool {
 	return slices.Contains(allowedCountries, country)
 }
 
-var breakLoopResult = FilterResult{
-	Error:     nil,
-	Passed:    true,
-	BreakLoop: true,
-}
-
-var passToNext = FilterResult{
-	Error:     nil,
-	Passed:    true,
-	BreakLoop: false,
-}
-
-var abortRequestResult = FilterResult{
-	Error:        nil,
-	Passed:       false,
-	BreakLoop:    false,
-	AbortHandler: methods.Forbidden,
-}
-
-func (f IpFilter) Handler(c *gin.Context) FilterResult {
+func (f *IpFilter) Handler(c *gin.Context) FilterResult {
 	remoteIP := c.RemoteIP()
 	ip := net.ParseIP(remoteIP)
 
 	breakLoop := loopbackV4.Contains(ip) || loopbackV6.Contains(ip) ||
 		isIpWhitelisted(remoteIP) || google.IsGoogleBot(ip)
 	if breakLoop {
-		return breakLoopResult
+		return BreakLoopResult
 	}
 
 	resolvedCountry := country.ResolveCountryByIP(remoteIP)
 	if resolvedCountry != "" {
 		if isCountryAllowed(resolvedCountry) {
-			return breakLoopResult
+			return BreakLoopResult
 		}
 
-		result := abortRequestResult
-		result.AbortHandler = methods.ForbiddenCountry(resolvedCountry, remoteIP)
+		// result := AbortRequestResult
+		// result.AbortHandler = methods.ForbiddenCountry(resolvedCountry, remoteIP)
 
-		return result
+		return PassToNext
 	}
 
 	// cannot detect country
 	// pass to next filter
-	return passToNext
+	return PassToNext
 }

@@ -181,8 +181,10 @@ func ResolveCountryByIP(remoteAddr string) string {
 		ipToCountry.Country = response.Country
 	}
 
-	ipToCountryStorage.Store(ipToCountry)          // storing to memory storage
-	go ipToCountryStorageClient.Store(ipToCountry) // storing to external storage
+	ipToCountryStorage.Store(ipToCountry) // storing to memory storage
+	if ipToCountryStorageClient.IsActive() {
+		go ipToCountryStorageClient.Store(ipToCountry) // storing to external storage
+	}
 
 	return ipToCountry.Country
 }
