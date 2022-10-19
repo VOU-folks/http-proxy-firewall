@@ -17,9 +17,12 @@ Layer 7 Proxy Firewall.
 
 ```shell
 mkdir -p /etc/proxy-firewall/bin
+mkdir -p /etc/proxy-firewall/files
 mkdir -p /etc/proxy-firewall/log
+rm /etc/proxy-firewall/log/*
 go build -o /etc/proxy-firewall/bin/proxy-firewall main.go
 chmod +x /etc/proxy-firewall/bin/proxy-firewall
+cp files/geo.mmdb /etc/proxy-firewall/files/geo.mmdb
 
 # for cleanup previous deploy
 systemctl disable proxy-firewall
@@ -28,7 +31,7 @@ pkill -f proxy-firewall
 
 cp proxy-firewall.service /usr/lib/systemd/system/
 systemctl enable proxy-firewall
-systemctl start proxy-firewall
+systemctl restart proxy-firewall
 systemctl status proxy-firewall
 ```
 

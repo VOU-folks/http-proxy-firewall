@@ -1,0 +1,6 @@
+package constants
+
+const (
+	ERR_TCP_LISTENER_START = 1000
+	ERR_TCP_LISTENER_ACCEPT
+)
