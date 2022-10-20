@@ -25,7 +25,7 @@ func isJS(ext string) bool {
 	return ext == ".js"
 }
 
-func (si *SkipStaticFiles) Handler(c *gin.Context) FilterResult {
+func (ssf *SkipStaticFiles) Handler(c *gin.Context) FilterResult {
 	ext := strings.ToLower(filepath.Ext(c.Request.URL.Path))
 	mime := mime.TypeByExtension(ext)
 

@@ -1,15 +1,15 @@
 package rules
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 
 	"http-proxy-firewall/lib/db/cookie"
 	. "http-proxy-firewall/lib/firewall/interfaces"
 )
 
-func init() {
-
-}
+var cookieMaxAge = int((time.Hour * 24).Seconds())
 
 type CookieCheckpoint struct {
 }
@@ -58,9 +58,9 @@ func ServeNewSid(c *gin.Context) {
 	c.SetCookie(
 		sidCookieName,
 		cookieRecord.Sid,
-		cookieRecord.MaxAge,
+		cookieMaxAge,
 		"/",
-		cookieRecord.Domain,
+		c.Request.Host,
 		false,
 		false,
 	)

@@ -13,21 +13,15 @@ import (
 	"github.com/jaevor/go-nanoid"
 )
 
-var cookieStorageDuration = time.Hour * 24 * 7
-var cookieMaxAge = time.Hour * 24 * 30
+var cookieStorageDuration = time.Hour * 24
 
 var cookieStorage *CookieStorage
 var cookieStorageClient *CookieStorageClient
 
 type CookieRecord struct {
-	Created   time.Time `json:"created" redis:"created"`
-	Expires   time.Time `json:"expires" redis:"expires"`
-	MaxAge    int       `json:"maxAge" redis:"maxAge"`
-	Sid       string    `json:"sid" redis:"sid"`
-	IP        string    `json:"ip" redis:"ip"`
-	Nonce     string    `json:"nonce" redis:"nonce"`
-	UserAgent string    `json:"userAgent" redis:"userAgent"`
-	Domain    string    `json:"domain" redis:"domain"`
+	Sid     string    `json:"sid" redis:"sid"`
+	Nonce   string    `json:"nonce" redis:"nonce"`
+	Expires time.Time `json:"expires" redis:"expires"`
 }
 
 func (cr *CookieRecord) MarshalBinary() ([]byte, error) {
@@ -74,11 +68,11 @@ func (c *CookieStorageClient) StorageKey() string {
 }
 
 func (c *CookieStorageClient) Key(entry string) string {
-	return entry
+	return c.StorageKey() + ":" + entry
 }
 
 func (c *CookieStorageClient) KeyFromCookieRecord(cookieRecord *CookieRecord) string {
-	return c.Key(cookieRecord.Sid)
+	return c.StorageKey() + ":" + cookieRecord.Sid
 }
 
 func (c *CookieStorageClient) IsActive() bool {
@@ -110,7 +104,7 @@ func (c *CookieStorageClient) Store(cookieRecord *CookieRecord) {
 	}
 
 	data, _ := json.Marshal(cookieRecord)
-	_, err := c.client.HSet(context.Background(), c.StorageKey(), c.KeyFromCookieRecord(cookieRecord), data).Result()
+	_, err := c.client.SetEX(context.Background(), c.KeyFromCookieRecord(cookieRecord), data, cookieStorageDuration).Result()
 	if err != nil {
 		log.Println("CookieStorageClient.Store", cookieRecord, err.Error())
 	}
@@ -119,7 +113,7 @@ func (c *CookieStorageClient) Store(cookieRecord *CookieRecord) {
 func (c *CookieStorageClient) Get(sid string) *CookieRecord {
 	var cookieRecord *CookieRecord
 
-	data, _ := c.client.HGet(context.Background(), c.StorageKey(), c.Key(sid)).Result()
+	data, _ := c.client.Get(context.Background(), c.Key(sid)).Result()
 	if data != "" {
 		err := json.Unmarshal([]byte(data), &cookieRecord)
 		if err != nil {
@@ -132,7 +126,7 @@ func (c *CookieStorageClient) Get(sid string) *CookieRecord {
 }
 
 func (c *CookieStorageClient) Delete(sid string) {
-	_, _ = c.client.HDel(context.Background(), c.StorageKey(), c.Key(sid)).Result()
+	_, _ = c.client.Del(context.Background(), c.Key(sid)).Result()
 }
 
 func init() {
@@ -202,14 +196,9 @@ func NewCookieRecord(remoteAddr string, domain string, userAgent string) *Cookie
 	sid := makeSid(nonce, remoteAddr, domain, userAgent)
 
 	cookie := &CookieRecord{
-		Created:   time.Now(),
-		Expires:   time.Now().Add(cookieStorageDuration),
-		MaxAge:    int(cookieMaxAge.Seconds()),
-		Sid:       sid,
-		Nonce:     nonce,
-		IP:        remoteAddr,
-		UserAgent: userAgent,
-		Domain:    domain,
+		Nonce:   nonce,
+		Sid:     sid,
+		Expires: time.Now().Add(cookieStorageDuration),
 	}
 
 	return cookie
