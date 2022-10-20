@@ -13,6 +13,7 @@ import (
 var filters = make([]FilterInterface, 0)
 
 func init() {
+	filters = append(filters, &rules.SkipImages{})
 	filters = append(filters, &rules.IpFilter{})
 	filters = append(filters, &rules.CookieCheckpoint{})
 }
