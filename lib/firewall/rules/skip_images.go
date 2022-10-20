@@ -2,7 +2,6 @@ package rules
 
 import (
 	"mime"
-	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -11,17 +10,27 @@ import (
 	. "http-proxy-firewall/lib/firewall/interfaces"
 )
 
-type SkipImages struct {
+type SkipStaticFiles struct {
 }
 
-func isImageUrl(url *url.URL) bool {
-	ext := filepath.Ext(url.Path)
-	mime := mime.TypeByExtension(ext)
+func isImage(mime string) bool {
 	return strings.Contains(mime, "image/")
 }
 
-func (si *SkipImages) Handler(c *gin.Context) FilterResult {
-	if isImageUrl(c.Request.URL) {
+func isCSS(ext string) bool {
+	return ext == ".css"
+}
+
+func isJS(ext string) bool {
+	return ext == ".js"
+}
+
+func (si *SkipStaticFiles) Handler(c *gin.Context) FilterResult {
+	ext := strings.ToLower(filepath.Ext(c.Request.URL.Path))
+	mime := mime.TypeByExtension(ext)
+
+	if isImage(mime) ||
+		isCSS(ext) || isJS(ext) {
 		return BreakLoopResult
 	}
 
