@@ -22,7 +22,7 @@ mkdir -p /etc/proxy-firewall/log
 rm /etc/proxy-firewall/log/*
 go build -o /etc/proxy-firewall/bin/proxy-firewall main.go
 chmod +x /etc/proxy-firewall/bin/proxy-firewall
-cp files/geo.mmdb /etc/proxy-firewall/files/geo.mmdb
+cp .env /etc/proxy-firewall/.env
 
 # for cleanup previous deploy
 systemctl disable proxy-firewall

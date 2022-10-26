@@ -6,6 +6,7 @@ require (
 	github.com/gin-gonic/gin v1.8.1
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/jaevor/go-nanoid v1.3.0
+	github.com/joho/godotenv v1.4.0
 	github.com/oschwald/maxminddb-golang v1.10.0
 )
 

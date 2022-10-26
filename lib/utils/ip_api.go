@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/oschwald/maxminddb-golang"
 )
@@ -56,16 +57,55 @@ func ResolveUsingIPAPI(ip string) *IPAPIResponse {
 	return ipApiResponse
 }
 
+var maxmindUpdatePeriod = time.Hour * 24 * 7
+
 func init() {
+	go func() {
+		for {
+			initializeDB()
+			time.Sleep(maxmindUpdatePeriod)
+		}
+	}()
+}
+
+func initializeDB() {
 	var err error
 
 	cwd, _ := os.Getwd()
-	maxmindFile := cwd + "/files/geo.mmdb"
-	maxMindDB, err = maxminddb.Open(maxmindFile)
+	filesDir := cwd + "/files"
+	maxmindFileName := "geo.mmdb"
+	maxmindFile := filesDir + "/" + maxmindFileName
+
+	downloadGeoDB(filesDir, maxmindFileName)
+
+	maxMindDB, err = maxminddb.Open(filesDir + "/" + maxmindFileName)
 	if err != nil {
 		log.Println("Cannot read maxmind file", maxmindFile, err.Error())
 		maxMindDB = nil
 	}
+}
+
+func downloadGeoDB(destDir string, destFileName string) {
+	licenseKey := GetEnv("MAXMIND_LICENSE_KEY")
+	source := fmt.Sprintf(
+		"https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=%s&suffix=tar.gz",
+		licenseKey,
+	)
+
+	client := http.Client{
+		CheckRedirect: func(r *http.Request, via []*http.Request) error {
+			r.URL.Opaque = r.URL.Path
+			return nil
+		},
+	}
+	resp, err := client.Get(source)
+	if err != nil {
+		log.Println("downloadGeoDB", err.Error())
+	}
+	defer resp.Body.Close()
+
+	ExtractMMDBFromTarGz(resp.Body, destDir)
+	FindMMDBAndMove(destDir, destDir, destFileName)
 }
 
 var maxMindDB *maxminddb.Reader

@@ -12,7 +12,6 @@ import (
 )
 
 func main() {
-	var err error
 	var addr = flag.String("addr", "0.0.0.0:80", "Proxy address")
 	flag.Parse()
 
@@ -26,12 +25,16 @@ func main() {
 	// app.NoRoute(methods.NotFound)
 	app.NoMethod(methods.NotFound)
 
-	server := http.CreateHttpServer(*addr)
-	server.Handler = app
+	listenAndServer(addr, app)
+}
 
-	err = server.ListenAndServe()
+func listenAndServer(addr *string, app *gin.Engine) {
+	httpServer := http.CreateHttpServer(*addr)
+	httpServer.Handler = app
+
+	err := httpServer.ListenAndServe()
 	if err != nil {
-		log.Fatal("ListenAndServe:", err.Error())
+		log.Fatal("httpServer.ListenAndServe:", err.Error())
 	}
-	log.Println("Proxy-firewall listening on", *addr)
+	log.Println("Proxy-firewall listening at", *addr)
 }
