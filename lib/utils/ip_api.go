@@ -57,7 +57,7 @@ func ResolveUsingIPAPI(ip string) *IPAPIResponse {
 	return ipApiResponse
 }
 
-var maxmindUpdatePeriod = time.Hour * 24 * 7
+var maxmindUpdatePeriod = time.Hour * 24 * 3
 
 func init() {
 	go func() {
