@@ -17,11 +17,12 @@ func init() {
 		Proxy:                 http.ProxyFromEnvironment,
 		TLSHandshakeTimeout:   3 * time.Second,
 		ResponseHeaderTimeout: 10 * time.Minute,
-		IdleConnTimeout:       10 * time.Second,
+		IdleConnTimeout:       1 * time.Minute,
 		DisableKeepAlives:     false,
-		MaxIdleConns:          0,
-		MaxIdleConnsPerHost:   0,
+		MaxIdleConns:          1000,
+		MaxIdleConnsPerHost:   10,
 		MaxConnsPerHost:       0,
+		ForceAttemptHTTP2:     false,
 	}
 }
 
