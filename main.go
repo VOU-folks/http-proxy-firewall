@@ -25,10 +25,10 @@ func main() {
 	// app.NoRoute(methods.NotFound)
 	app.NoMethod(methods.NotFound)
 
-	listenAndServer(addr, app)
+	startListeners(addr, app)
 }
 
-func listenAndServer(addr *string, app *gin.Engine) {
+func startListeners(addr *string, app *gin.Engine) {
 	httpServer := http.CreateHttpServer(*addr)
 	httpServer.Handler = app
 

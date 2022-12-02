@@ -14,6 +14,7 @@ import (
 )
 
 var cookieStorageDuration = time.Hour * 24
+var cookieStorageCapacity = 100000
 
 var cookieStorage *CookieStorage
 var cookieStorageClient *CookieStorageClient

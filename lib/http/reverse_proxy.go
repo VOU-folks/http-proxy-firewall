@@ -4,26 +4,63 @@ import (
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
-var transport *http.Transport
+type TransportStorage struct {
+	transports []*http.Transport
+	seq        int
+	size       int
+	mx         sync.Mutex
+}
+
+func (ts *TransportStorage) Init() {
+	ts.transports = make([]*http.Transport, runtime.NumCPU())
+	ts.mx = sync.Mutex{}
+	ts.size = runtime.NumCPU()
+	for n := 0; n < ts.size; n++ {
+		ts.transports[n] = &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			TLSHandshakeTimeout:   3 * time.Second,
+			ResponseHeaderTimeout: 10 * time.Minute,
+			IdleConnTimeout:       1 * time.Minute,
+			DisableKeepAlives:     false,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			MaxConnsPerHost:       0,
+			ForceAttemptHTTP2:     false,
+		}
+	}
+
+	log.Println("Created ", ts.size, " http transports")
+}
+
+func (ts *TransportStorage) Get() *http.Transport {
+	var transport *http.Transport
+
+	ts.mx.Lock()
+
+	if ts.seq == ts.size {
+		ts.seq = 0
+	}
+	transport = ts.transports[ts.seq]
+	ts.seq++
+
+	ts.mx.Unlock()
+
+	return transport
+}
+
+var transportStorage *TransportStorage
 
 func init() {
-	transport = &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		TLSHandshakeTimeout:   3 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Minute,
-		IdleConnTimeout:       1 * time.Minute,
-		DisableKeepAlives:     false,
-		MaxIdleConns:          1000,
-		MaxIdleConnsPerHost:   10,
-		MaxConnsPerHost:       0,
-		ForceAttemptHTTP2:     false,
-	}
+	transportStorage = &TransportStorage{}
+	transportStorage.Init()
 }
 
 func requestDirector(req *http.Request, targetServer string, host string) func(req *http.Request) {
@@ -35,22 +72,20 @@ func requestDirector(req *http.Request, targetServer string, host string) func(r
 	}
 }
 
+func errorHandler(writer http.ResponseWriter, request *http.Request, err error) {
+	if !strings.Contains(err.Error(), "context canceled") {
+		log.Println("ErrorHandler in ReverseProxy", err.Error())
+	}
+}
+
 func ReverseProxy(targetServer string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		host := c.Request.Host
 
 		proxy := &httputil.ReverseProxy{
-			Director:  requestDirector(c.Request, targetServer, host),
-			Transport: transport,
-			ErrorHandler: func(writer http.ResponseWriter, request *http.Request, err error) {
-				if !strings.Contains(err.Error(), "context canceled") {
-					log.Println("ErrorHandler in ReverseProxy", err.Error())
-				}
-
-				// writer.WriteHeader(200)
-				// writer.Header().Set("Content-Type", "text/html")
-				// _, _ = writer.Write([]byte("<meta http-equiv=\"refresh\" content=\"1\">"))
-			},
+			Director:     requestDirector(c.Request, targetServer, host),
+			Transport:    transportStorage.Get(),
+			ErrorHandler: errorHandler,
 		}
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}
