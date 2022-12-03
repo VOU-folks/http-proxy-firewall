@@ -19,6 +19,9 @@ func main() {
 
 	app := gin.New()
 	app.Use(gin.Recovery())
+
+	app.GET("/_pf/_status", http.Status)
+
 	app.Use(firewall.Handler)
 	app.Use(http.ReverseProxy("127.0.0.1:8008"))
 

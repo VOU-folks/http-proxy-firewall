@@ -14,7 +14,7 @@ import (
 )
 
 var cookieStorageDuration = time.Hour * 24
-var cookieStorageCapacity = 100000
+var cookieStorageCapacity = 1000000
 
 var cookieStorage *CookieStorage
 var cookieStorageClient *CookieStorageClient
@@ -31,6 +31,8 @@ func (cr *CookieRecord) MarshalBinary() ([]byte, error) {
 
 type CookieStorage struct {
 	storage map[string]*CookieRecord
+	cap     int
+	size    int
 	mx      sync.Mutex
 }
 
@@ -48,14 +50,25 @@ func (cs *CookieStorage) Store(cookieRecord *CookieRecord) {
 	}
 
 	cs.mx.Lock()
+	if cs.size == cs.cap {
+		cs.Clear()
+	}
 	cs.storage[cookieRecord.Sid] = cookieRecord
+	cs.size++
 	cs.mx.Unlock()
 }
 
 func (cs *CookieStorage) Delete(key string) {
 	cs.mx.Lock()
 	delete(cs.storage, key)
+	cs.size = len(cs.storage)
 	cs.mx.Unlock()
+}
+
+func (cs *CookieStorage) Clear() {
+	cs.size = 0
+	cs.cap = cookieStorageCapacity
+	cs.storage = make(map[string]*CookieRecord, cookieStorageCapacity)
 }
 
 type CookieStorageClient struct {
@@ -132,7 +145,9 @@ func (c *CookieStorageClient) Delete(sid string) {
 
 func init() {
 	cookieStorage = &CookieStorage{
-		storage: make(map[string]*CookieRecord, 0),
+		cap:     cookieStorageCapacity,
+		size:    0,
+		storage: make(map[string]*CookieRecord, cookieStorageCapacity),
 		mx:      sync.Mutex{},
 	}
 
@@ -149,6 +164,14 @@ func init() {
 	}
 
 	cookieStorageClient.Start()
+}
+
+func Size() int {
+	return cookieStorage.size
+}
+
+func Cap() int {
+	return cookieStorage.cap
 }
 
 func GetCookieRecordBySid(sid string) *CookieRecord {
