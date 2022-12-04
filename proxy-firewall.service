@@ -6,7 +6,7 @@ After=network.target
 WantedBy=multi-user.target
 
 [Service]
-ExecStart=/etc/proxy-firewall/bin/proxy-firewall
+ExecStart=/etc/proxy-firewall/bin/proxy-firewall --listen=0.0.0.0:80 --proxy-to=127.0.0.1:8008 --metrics=true --silent=true
 ExecStop=/bin/kill -s TERM $MAINPID
 WorkingDirectory=/etc/proxy-firewall
 User=root

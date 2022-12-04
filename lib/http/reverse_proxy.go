@@ -1,6 +1,7 @@
 package http
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"http-proxy-firewall/lib/firewall/methods"
 )
 
 type TransportStorage struct {
@@ -78,8 +81,17 @@ func errorHandler(writer http.ResponseWriter, request *http.Request, err error) 
 	}
 }
 
+func shouldRecover(c *gin.Context) {
+	if r := recover(); r != nil {
+		fmt.Println("Recovered from", r)
+		methods.NotFound(c)
+	}
+}
+
 func ReverseProxy(targetServer string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		defer shouldRecover(c)
+
 		host := c.Request.Host
 
 		proxy := &httputil.ReverseProxy{

@@ -14,10 +14,60 @@ import (
 )
 
 var cookieStorageDuration = time.Hour * 24
-var cookieStorageCapacity = 1000000
 
 var cookieStorage *CookieStorage
 var cookieStorageClient *CookieStorageClient
+
+var cookieAccessJournal *CookieAccessJournal
+
+type CookieAccessJournal struct {
+	records map[string]time.Time
+	mx      sync.Mutex
+}
+
+func (j *CookieAccessJournal) Accessed(sid string) {
+	j.mx.Lock()
+	j.records[sid] = time.Now()
+	j.mx.Unlock()
+}
+
+func (j *CookieAccessJournal) Delete(sid string) {
+	j.mx.Lock()
+	delete(j.records, sid)
+	j.mx.Unlock()
+}
+
+func (j *CookieAccessJournal) CleanUnusedCookies(cookieStorage *CookieStorage) {
+	var sids []string
+	var journal map[string]time.Time
+
+	j.mx.Lock()
+	journal = j.records
+	j.mx.Unlock()
+
+	for sid, accessTime := range journal {
+		if time.Now().Sub(accessTime).Seconds() < cookieStorageDuration.Seconds() {
+			sids = append(sids, sid)
+		}
+	}
+
+	if len(sids) > 0 {
+		for _, sid := range sids {
+			j.Delete(sid)
+			cookieStorage.Delete(sid)
+		}
+	}
+}
+
+func (j *CookieAccessJournal) Start(cookieStorage *CookieStorage) {
+	go func() {
+		for {
+			j.CleanUnusedCookies(cookieStorage)
+
+			time.Sleep(time.Hour)
+		}
+	}()
+}
 
 type CookieRecord struct {
 	Sid     string    `json:"sid" redis:"sid"`
@@ -31,8 +81,6 @@ func (cr *CookieRecord) MarshalBinary() ([]byte, error) {
 
 type CookieStorage struct {
 	storage map[string]*CookieRecord
-	cap     int
-	size    int
 	mx      sync.Mutex
 }
 
@@ -50,25 +98,14 @@ func (cs *CookieStorage) Store(cookieRecord *CookieRecord) {
 	}
 
 	cs.mx.Lock()
-	if cs.size == cs.cap {
-		cs.Clear()
-	}
 	cs.storage[cookieRecord.Sid] = cookieRecord
-	cs.size++
 	cs.mx.Unlock()
 }
 
 func (cs *CookieStorage) Delete(key string) {
 	cs.mx.Lock()
 	delete(cs.storage, key)
-	cs.size = len(cs.storage)
 	cs.mx.Unlock()
-}
-
-func (cs *CookieStorage) Clear() {
-	cs.size = 0
-	cs.cap = cookieStorageCapacity
-	cs.storage = make(map[string]*CookieRecord, cookieStorageCapacity)
 }
 
 type CookieStorageClient struct {
@@ -144,12 +181,17 @@ func (c *CookieStorageClient) Delete(sid string) {
 }
 
 func init() {
-	cookieStorage = &CookieStorage{
-		cap:     cookieStorageCapacity,
-		size:    0,
-		storage: make(map[string]*CookieRecord, cookieStorageCapacity),
+	cookieAccessJournal = &CookieAccessJournal{
+		records: make(map[string]time.Time),
 		mx:      sync.Mutex{},
 	}
+
+	cookieStorage = &CookieStorage{
+		storage: make(map[string]*CookieRecord),
+		mx:      sync.Mutex{},
+	}
+
+	cookieAccessJournal.Start(cookieStorage)
 
 	cookieStorageClient = &CookieStorageClient{
 		client: redis.NewClient(
@@ -166,22 +208,16 @@ func init() {
 	cookieStorageClient.Start()
 }
 
-func Size() int {
-	return cookieStorage.size
-}
-
-func Cap() int {
-	return cookieStorage.cap
-}
-
 func GetCookieRecordBySid(sid string) *CookieRecord {
 	// get from memory storage
 	cookieRecord := cookieStorage.Get(sid)
 	if cookieRecord != nil {
 		if !cookieRecord.Expires.Before(time.Now()) {
+			cookieAccessJournal.Accessed(sid)
 			return cookieRecord
 		}
 		cookieStorage.Delete(sid)
+		cookieAccessJournal.Delete(sid)
 		if cookieStorageClient.IsActive() {
 			go cookieStorageClient.Delete(sid)
 		}
