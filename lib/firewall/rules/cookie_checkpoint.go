@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,13 +15,22 @@ var cookieMaxAge = int((time.Hour * 24).Seconds())
 type CookieCheckpoint struct {
 }
 
-var sidCookieName = "X-SID"
+var sidCookieName = "X-Sid"
 
 var ServeNewSidResult = FilterResult{
 	Error:        nil,
 	AbortHandler: ServeNewSid,
 	Passed:       false,
 	BreakLoop:    true,
+}
+
+func getHostname(c *gin.Context) string {
+	host := c.Request.Host
+	if strings.HasPrefix(host, "www.") {
+		host = strings.TrimLeft(host, "www.")
+	}
+
+	return host
 }
 
 func (cc *CookieCheckpoint) Handler(c *gin.Context) FilterResult {
@@ -34,7 +44,7 @@ func (cc *CookieCheckpoint) Handler(c *gin.Context) FilterResult {
 	valid := cookie.ValidateSid(
 		sid,
 		remoteIP,
-		c.Request.Host,
+		getHostname(c),
 		c.Request.UserAgent(),
 	)
 	if !valid {
@@ -49,7 +59,7 @@ func ServeNewSid(c *gin.Context) {
 
 	cookieRecord := cookie.NewCookieRecord(
 		remoteIP,
-		c.Request.Host,
+		getHostname(c),
 		c.Request.UserAgent(),
 	)
 
@@ -60,7 +70,7 @@ func ServeNewSid(c *gin.Context) {
 		cookieRecord.Sid,
 		cookieMaxAge,
 		"/",
-		c.Request.Host,
+		getHostname(c),
 		false,
 		false,
 	)
