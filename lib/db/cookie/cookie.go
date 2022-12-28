@@ -75,28 +75,24 @@ type CookieRecord struct {
 	Expires time.Time `json:"expires" redis:"expires"`
 }
 
-func (cr *CookieRecord) MarshalBinary() ([]byte, error) {
+func (cr CookieRecord) MarshalBinary() ([]byte, error) {
 	return json.Marshal(cr)
 }
 
 type CookieStorage struct {
-	storage map[string]*CookieRecord
+	storage map[string]CookieRecord
 	mx      sync.Mutex
 }
 
-func (cs *CookieStorage) Get(key string) *CookieRecord {
+func (cs *CookieStorage) Get(key string) (CookieRecord, bool) {
 	cs.mx.Lock()
-	result := cs.storage[key]
+	result, exists := cs.storage[key]
 	cs.mx.Unlock()
 
-	return result
+	return result, exists
 }
 
-func (cs *CookieStorage) Store(cookieRecord *CookieRecord) {
-	if cookieRecord == nil {
-		return
-	}
-
+func (cs *CookieStorage) Store(cookieRecord CookieRecord) {
 	cs.mx.Lock()
 	cs.storage[cookieRecord.Sid] = cookieRecord
 	cs.mx.Unlock()
@@ -122,7 +118,7 @@ func (c *CookieStorageClient) Key(entry string) string {
 	return c.StorageKey() + ":" + entry
 }
 
-func (c *CookieStorageClient) KeyFromCookieRecord(cookieRecord *CookieRecord) string {
+func (c *CookieStorageClient) KeyFromCookieRecord(cookieRecord CookieRecord) string {
 	return c.StorageKey() + ":" + cookieRecord.Sid
 }
 
@@ -149,11 +145,7 @@ func (c *CookieStorageClient) Start() {
 	}()
 }
 
-func (c *CookieStorageClient) Store(cookieRecord *CookieRecord) {
-	if cookieRecord == nil {
-		return
-	}
-
+func (c *CookieStorageClient) Store(cookieRecord CookieRecord) {
 	data, _ := json.Marshal(cookieRecord)
 	_, err := c.client.SetEX(context.Background(), c.KeyFromCookieRecord(cookieRecord), data, cookieStorageDuration).Result()
 	if err != nil {
@@ -161,19 +153,19 @@ func (c *CookieStorageClient) Store(cookieRecord *CookieRecord) {
 	}
 }
 
-func (c *CookieStorageClient) Get(sid string) *CookieRecord {
-	var cookieRecord *CookieRecord
+func (c *CookieStorageClient) Get(sid string) (CookieRecord, bool) {
+	var cookieRecord CookieRecord
 
 	data, _ := c.client.Get(context.Background(), c.Key(sid)).Result()
 	if data != "" {
 		err := json.Unmarshal([]byte(data), &cookieRecord)
 		if err != nil {
 			log.Println("CookieStorageClient.Get", sid, err.Error())
-			return nil
+			return cookieRecord, false
 		}
 	}
 
-	return cookieRecord
+	return cookieRecord, true
 }
 
 func (c *CookieStorageClient) Delete(sid string) {
@@ -187,7 +179,7 @@ func init() {
 	}
 
 	cookieStorage = &CookieStorage{
-		storage: make(map[string]*CookieRecord),
+		storage: make(map[string]CookieRecord),
 		mx:      sync.Mutex{},
 	}
 
@@ -208,13 +200,13 @@ func init() {
 	cookieStorageClient.Start()
 }
 
-func GetCookieRecordBySid(sid string) *CookieRecord {
+func GetCookieRecordBySid(sid string) (CookieRecord, bool) {
 	// get from memory storage
-	cookieRecord := cookieStorage.Get(sid)
-	if cookieRecord != nil {
+	cookieRecord, exists := cookieStorage.Get(sid)
+	if exists {
 		if !cookieRecord.Expires.Before(time.Now()) {
 			cookieAccessJournal.Accessed(sid)
-			return cookieRecord
+			return cookieRecord, true
 		}
 		cookieStorage.Delete(sid)
 		cookieAccessJournal.Delete(sid)
@@ -223,22 +215,19 @@ func GetCookieRecordBySid(sid string) *CookieRecord {
 		}
 	}
 
-	// if it was not in memory storage it shall be nil
-	if cookieRecord == nil {
-		// trying to get from external storage
-		if cookieStorageClient.IsActive() {
-			cookieRecord = cookieStorageClient.Get(sid)
-			if cookieRecord != nil {
-				if !cookieRecord.Expires.Before(time.Now()) {
-					cookieStorage.Store(cookieRecord) // storing to memory storage
-					return cookieRecord
-				}
-				go cookieStorageClient.Delete(sid)
+	// trying to get from external storage
+	if cookieStorageClient.IsActive() {
+		cookieRecord, exists = cookieStorageClient.Get(sid)
+		if exists {
+			if !cookieRecord.Expires.Before(time.Now()) {
+				cookieStorage.Store(cookieRecord) // storing to memory storage
+				return cookieRecord, true
 			}
+			go cookieStorageClient.Delete(sid)
 		}
 	}
 
-	return nil
+	return cookieRecord, false
 }
 
 var makeNonce, _ = nanoid.Standard(32)
@@ -251,11 +240,11 @@ func makeSid(nonce string, remoteAddr string, domain string, userAgent string) s
 	return sid
 }
 
-func NewCookieRecord(remoteAddr string, domain string, userAgent string) *CookieRecord {
+func NewCookieRecord(remoteAddr string, domain string, userAgent string) CookieRecord {
 	nonce := makeNonce()
 	sid := makeSid(nonce, remoteAddr, domain, userAgent)
 
-	cookie := &CookieRecord{
+	cookie := CookieRecord{
 		Nonce:   nonce,
 		Sid:     sid,
 		Expires: time.Now().Add(cookieStorageDuration),
@@ -264,7 +253,7 @@ func NewCookieRecord(remoteAddr string, domain string, userAgent string) *Cookie
 	return cookie
 }
 
-func StoreCookieRecord(cookieRecord *CookieRecord) {
+func StoreCookieRecord(cookieRecord CookieRecord) {
 	cookieStorage.Store(cookieRecord)
 	if cookieStorageClient.IsActive() {
 		go cookieStorageClient.Store(cookieRecord)
@@ -272,8 +261,8 @@ func StoreCookieRecord(cookieRecord *CookieRecord) {
 }
 
 func ValidateSid(providedSid string, remoteAddr string, domain string, userAgent string) bool {
-	cookieRecord := GetCookieRecordBySid(providedSid)
-	if cookieRecord == nil {
+	cookieRecord, exists := GetCookieRecordBySid(providedSid)
+	if !exists {
 		return false
 	}
 
