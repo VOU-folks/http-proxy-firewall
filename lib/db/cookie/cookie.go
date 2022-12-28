@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"log"
+	"runtime"
 	"sync"
 	"time"
 
@@ -163,9 +164,11 @@ func (c *CookieStorageClient) Get(sid string) (CookieRecord, bool) {
 			log.Println("CookieStorageClient.Get", sid, err.Error())
 			return cookieRecord, false
 		}
+
+		return cookieRecord, true
 	}
 
-	return cookieRecord, true
+	return cookieRecord, false
 }
 
 func (c *CookieStorageClient) Delete(sid string) {
@@ -188,9 +191,11 @@ func init() {
 	cookieStorageClient = &CookieStorageClient{
 		client: redis.NewClient(
 			&redis.Options{
-				Addr:     "redis:6379",
-				Password: "",
-				DB:       0,
+				Addr:        "redis:6379",
+				Password:    "",
+				DB:          0,
+				PoolSize:    runtime.NumCPU(),
+				PoolTimeout: time.Second * 10,
 			},
 		),
 		enabled: false,
