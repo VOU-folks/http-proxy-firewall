@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"runtime"
 	"sync"
 	"time"
 
@@ -126,7 +127,7 @@ func init() {
 				Addr:        "redis:6379",
 				Password:    "",
 				DB:          0,
-				PoolSize:    2,
+				PoolSize:    runtime.NumCPU(),
 				PoolTimeout: time.Second * 10,
 			},
 		),

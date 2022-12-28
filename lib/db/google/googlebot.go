@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -22,7 +23,7 @@ type GooglebotIPRecord = string
 
 type GooglebotIPStorage struct {
 	records  []GooglebotIPRecord
-	networks []*net.IPNet
+	networks []net.IPNet
 	mx       sync.Mutex
 }
 
@@ -83,16 +84,18 @@ func (c *GooglebotIPStorageClient) Get() []GooglebotIPRecord {
 func init() {
 	googlebotIPStorage = &GooglebotIPStorage{
 		records:  make([]GooglebotIPRecord, 0),
-		networks: make([]*net.IPNet, 0),
+		networks: make([]net.IPNet, 0),
 		mx:       sync.Mutex{},
 	}
 
 	googlebotIPStorageClient = &GooglebotIPStorageClient{
 		client: redis.NewClient(
 			&redis.Options{
-				Addr:     "redis:6379",
-				Password: "",
-				DB:       0,
+				Addr:        "redis:6379",
+				Password:    "",
+				DB:          0,
+				PoolSize:    runtime.NumCPU(),
+				PoolTimeout: time.Second * 10,
 			},
 		),
 		enabled: false,
@@ -126,7 +129,7 @@ func restoreFromStorageServer() {
 
 	googlebotIPStorage.records = googlebotIPStorageClient.Get()
 
-	networks := make([]*net.IPNet, 0)
+	networks := make([]net.IPNet, 0)
 	var network *net.IPNet
 	for _, record := range googlebotIPStorage.records {
 		_, network, err = net.ParseCIDR(record)
@@ -136,7 +139,7 @@ func restoreFromStorageServer() {
 			continue
 		}
 
-		networks = append(networks, network)
+		networks = append(networks, *network)
 	}
 
 	googlebotIPStorage.networks = networks
@@ -144,7 +147,7 @@ func restoreFromStorageServer() {
 
 func getGoogleBotIPs() {
 	var records = make([]GooglebotIPRecord, 0)
-	var networks = make([]*net.IPNet, 0)
+	var networks = make([]net.IPNet, 0)
 	var googleIPRanges IPRanges
 
 	for {
@@ -181,7 +184,7 @@ func getGoogleBotIPs() {
 			}
 
 			if network != nil {
-				networks = append(networks, network)
+				networks = append(networks, *network)
 			}
 		}
 
@@ -209,6 +212,10 @@ func IsGoogleBot(ip net.IP) bool {
 		}
 	}
 	googlebotIPStorage.mx.Unlock()
+
+	if result {
+		log.Println("GoogleBot by IP: " + ip.String() + " visited")
+	}
 
 	return result
 }
