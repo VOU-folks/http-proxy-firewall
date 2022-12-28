@@ -207,15 +207,12 @@ func IsGoogleBot(ip net.IP) bool {
 	googlebotIPStorage.mx.Lock()
 	for _, network := range googlebotIPStorage.networks {
 		if network.Contains(ip) {
+			log.Println("IP: " + ip.String() + " is GoogleBot")
 			result = true
 			break
 		}
 	}
 	googlebotIPStorage.mx.Unlock()
-
-	if result {
-		log.Println("GoogleBot by IP: " + ip.String() + " visited")
-	}
 
 	return result
 }
