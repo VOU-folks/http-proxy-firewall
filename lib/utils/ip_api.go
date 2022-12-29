@@ -57,7 +57,7 @@ func ResolveUsingIPAPI(ip string) *IPAPIResponse {
 	return ipApiResponse
 }
 
-var maxmindUpdatePeriod = time.Hour * 24 * 3
+var maxmindUpdatePeriod = time.Hour * 24
 
 func init() {
 	go func() {
@@ -119,17 +119,22 @@ type MaxMindResult struct {
 	} `maxminddb:"country"`
 }
 
-func ResolveUsingMaxMindAPI(ipAddress string) *IPAPIResponse {
-	if maxMindDB == nil {
-		return nil
+func ResolveUsingMaxMindAPI(ipAddress string) (IPAPIResponse, bool) {
+	result := IPAPIResponse{
+		Country:     "",
+		CountryCode: "",
 	}
 
-	var lookupResult *MaxMindResult
+	if maxMindDB == nil {
+		return result, false
+	}
+
+	var lookupResult MaxMindResult
 	ip := net.ParseIP(ipAddress)
 	maxMindDB.Lookup(ip, &lookupResult)
 
-	return &IPAPIResponse{
-		Country:     lookupResult.Country.Names.EN,
-		CountryCode: lookupResult.Country.ISOCode,
-	}
+	result.Country = lookupResult.Country.Names.EN
+	result.CountryCode = lookupResult.Country.ISOCode
+
+	return result, true
 }

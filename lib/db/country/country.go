@@ -13,8 +13,8 @@ import (
 	"http-proxy-firewall/lib/utils"
 )
 
-var ipToCountryStorageDuration = time.Hour * 15 * 24
-var ipToCountryStorageShortDuration = time.Hour * 24
+var ipToCountryStorageDuration = time.Hour * 24
+var ipToCountryStorageShortDuration = time.Hour
 
 var ipToCountryStorage *IpToCountryStorage
 var ipToCountryStorageClient *IpToCountryStorageClient
@@ -168,9 +168,9 @@ func ResolveCountryByIP(remoteAddr string) string {
 	}
 
 	// requesting IP service to get information
-	response := utils.ResolveUsingMaxMindAPI(remoteAddr)
-	if response != nil {
-		// prolonging lifetime of iIP information
+	response, found := utils.ResolveUsingMaxMindAPI(remoteAddr)
+	if found {
+		// prolonging lifetime of IP information
 		ipToCountry.Expires = time.Now().Add(ipToCountryStorageDuration)
 		ipToCountry.Country = response.Country
 	}

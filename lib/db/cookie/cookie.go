@@ -14,7 +14,7 @@ import (
 	"github.com/jaevor/go-nanoid"
 )
 
-var cookieStorageDuration = time.Hour
+var cookieStorageDuration = time.Hour * 24
 
 var cookieStorage *CookieStorage
 var cookieStorageClient *CookieStorageClient
