@@ -39,6 +39,7 @@ var ipWhitelist = []string{
 	"162.55.45.158",
 	"46.17.40.9",
 	"49.12.112.9",
+	"95.217.28.15",
 	"10.0.0.1",
 	"10.0.0.2",
 	"10.0.0.3",
@@ -86,6 +87,7 @@ func (f *IpFilter) Handler(c *gin.Context) FilterResult {
 
 		// result := AbortRequestResult
 		// result.AbortHandler = methods.ForbiddenCountry(resolvedCountry, remoteIP)
+		// return result
 
 		return PassToNext
 	}

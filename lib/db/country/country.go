@@ -50,9 +50,14 @@ func (s *IpToCountryStorage) Store(ipToCountry IpToCountry) {
 }
 
 type IpToCountryStorageClient struct {
-	client  *redis.Client
-	enabled bool
-	mx      sync.Mutex
+	client    *redis.Client
+	enabled   bool
+	connected bool
+	mx        sync.Mutex
+}
+
+func EnableRedisClient(enable bool) {
+	ipToCountryStorageClient.enabled = enable
 }
 
 func (c *IpToCountryStorageClient) StorageKey() string {
@@ -68,22 +73,20 @@ func (c *IpToCountryStorageClient) KeyFromIpToCountry(ipToCountry IpToCountry) s
 }
 
 func (c *IpToCountryStorageClient) IsActive() bool {
-	c.mx.Lock()
-	result := c.client != nil && c.enabled
-	c.mx.Unlock()
-
-	return result
+	return c.enabled && c.client != nil && c.connected
 }
 
 func (c *IpToCountryStorageClient) Start() {
-	c.enabled = false
+	c.connected = false
 
 	go func() {
 		for {
-			_, err := c.client.Ping(context.Background()).Result()
-			c.mx.Lock()
-			c.enabled = err == nil
-			c.mx.Unlock()
+			if c.enabled {
+				_, err := c.client.Ping(context.Background()).Result()
+				c.mx.Lock()
+				c.connected = err == nil
+				c.mx.Unlock()
+			}
 
 			time.Sleep(time.Minute)
 		}
@@ -127,7 +130,7 @@ func init() {
 				Addr:        "redis:6379",
 				Password:    "",
 				DB:          0,
-				PoolSize:    runtime.NumCPU(),
+				PoolSize:    runtime.NumCPU() - runtime.NumCPU()%3,
 				PoolTimeout: time.Second * 10,
 			},
 		),

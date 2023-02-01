@@ -47,6 +47,7 @@ func (cc *CookieCheckpoint) Handler(c *gin.Context) FilterResult {
 		getHostname(c),
 		c.Request.UserAgent(),
 	)
+
 	if !valid {
 		return ServeNewSidResult
 	}

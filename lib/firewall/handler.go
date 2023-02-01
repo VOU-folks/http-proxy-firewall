@@ -5,17 +5,28 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	cookieDb "http-proxy-firewall/lib/db/cookie"
+	countryDb "http-proxy-firewall/lib/db/country"
+	googleDb "http-proxy-firewall/lib/db/google"
+
 	. "http-proxy-firewall/lib/firewall/interfaces"
 	"http-proxy-firewall/lib/firewall/methods"
 	"http-proxy-firewall/lib/firewall/rules"
 )
 
-var filters = make([]FilterInterface, 0)
+var filters []FilterInterface
 
 func init() {
+	filters = make([]FilterInterface, 0)
 	filters = append(filters, &rules.SkipStaticFiles{})
 	filters = append(filters, &rules.IpFilter{})
 	filters = append(filters, &rules.CookieCheckpoint{})
+}
+
+func EnableRedis(enable bool) {
+	cookieDb.EnableRedisClient(enable)
+	countryDb.EnableRedisClient(enable)
+	googleDb.EnableRedisClient(enable)
 }
 
 func Handler(c *gin.Context) {

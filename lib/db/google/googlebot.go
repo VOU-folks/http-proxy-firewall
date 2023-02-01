@@ -28,9 +28,14 @@ type GooglebotIPStorage struct {
 }
 
 type GooglebotIPStorageClient struct {
-	client  *redis.Client
-	enabled bool
-	mx      sync.Mutex
+	client    *redis.Client
+	enabled   bool
+	connected bool
+	mx        sync.Mutex
+}
+
+func EnableRedisClient(enable bool) {
+	googlebotIPStorageClient.enabled = enable
 }
 
 func (c *GooglebotIPStorageClient) StorageKey() string {
@@ -38,20 +43,22 @@ func (c *GooglebotIPStorageClient) StorageKey() string {
 }
 
 func (c *GooglebotIPStorageClient) IsActive() bool {
-	return c.client != nil && c.enabled
+	return c.enabled && c.client != nil && c.connected
 }
 
 func (c *GooglebotIPStorageClient) Start() {
-	c.enabled = false
+	c.connected = false
 
 	go func() {
 		for {
-			_, err := c.client.Ping(context.Background()).Result()
-			c.mx.Lock()
-			c.enabled = err == nil
-			c.mx.Unlock()
+			if c.enabled {
+				_, err := c.client.Ping(context.Background()).Result()
+				c.mx.Lock()
+				c.connected = err == nil
+				c.mx.Unlock()
 
-			restoreFromStorageServer()
+				restoreFromStorageServer()
+			}
 
 			time.Sleep(time.Minute)
 		}
@@ -94,7 +101,7 @@ func init() {
 				Addr:        "redis:6379",
 				Password:    "",
 				DB:          0,
-				PoolSize:    runtime.NumCPU(),
+				PoolSize:    runtime.NumCPU() - runtime.NumCPU()%3,
 				PoolTimeout: time.Second * 10,
 			},
 		),

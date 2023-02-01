@@ -23,9 +23,11 @@ type TransportStorage struct {
 }
 
 func (ts *TransportStorage) Init() {
-	ts.transports = make([]*http.Transport, runtime.NumCPU())
+	transportsCount := runtime.NumCPU() * 2
+
+	ts.transports = make([]*http.Transport, transportsCount)
 	ts.mx = sync.Mutex{}
-	ts.size = runtime.NumCPU()
+	ts.size = transportsCount
 	for n := 0; n < ts.size; n++ {
 		ts.transports[n] = &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,

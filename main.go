@@ -17,12 +17,16 @@ func main() {
 	var proxyTo = flag.String("proxy-to", "127.0.0.1:8008", "Address of remote server to proxy (default 127.0.0.1:8008)")
 	var metricsEnabled = flag.Bool("metrics", false, "Enable metrics (default false)")
 	var silentMode = flag.Bool("silent", true, "Disable verbosity, log only errors (default true)")
+	var enableRedis = flag.Bool("enable-redis", false, "Enable redis server usage for in memory objects (default false) like cookies, ip-country")
 	flag.Parse()
 
 	log.Println("listen =", *listen)
 	log.Println("proxy-to =", *proxyTo)
 	log.Println("metrics =", *metricsEnabled)
 	log.Println("silent =", *silentMode)
+	log.Println("enable-redis =", *enableRedis)
+
+	firewall.EnableRedis(*enableRedis)
 
 	app := createAppInstance(*proxyTo, *metricsEnabled, *silentMode)
 
