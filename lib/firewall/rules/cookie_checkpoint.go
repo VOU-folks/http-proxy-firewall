@@ -1,13 +1,13 @@
 package rules
 
 import (
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"http-proxy-firewall/lib/db/cookie"
 	. "http-proxy-firewall/lib/firewall/interfaces"
+	"http-proxy-firewall/lib/utils"
 )
 
 var cookieMaxAge = int((time.Hour * 24).Seconds())
@@ -24,17 +24,8 @@ var ServeNewSidResult = FilterResult{
 	BreakLoop:    true,
 }
 
-func getHostname(c *gin.Context) string {
-	host := c.Request.Host
-	if strings.HasPrefix(host, "www.") {
-		host = strings.TrimLeft(host, "www.")
-	}
-
-	return host
-}
-
 func (cc *CookieCheckpoint) Handler(c *gin.Context) FilterResult {
-	remoteIP := c.RemoteIP()
+	remoteIP := utils.ResolveRemoteIP(c)
 
 	sid, err := c.Cookie(sidCookieName)
 	if err != nil {
@@ -44,7 +35,7 @@ func (cc *CookieCheckpoint) Handler(c *gin.Context) FilterResult {
 	valid := cookie.ValidateSid(
 		sid,
 		remoteIP,
-		getHostname(c),
+		utils.ResolveHostname(c),
 		c.Request.UserAgent(),
 	)
 
@@ -56,11 +47,12 @@ func (cc *CookieCheckpoint) Handler(c *gin.Context) FilterResult {
 }
 
 func ServeNewSid(c *gin.Context) {
-	remoteIP := c.RemoteIP()
+	remoteIP := utils.ResolveRemoteIP(c)
+	hostname := utils.ResolveHostname(c)
 
 	cookieRecord := cookie.NewCookieRecord(
 		remoteIP,
-		getHostname(c),
+		hostname,
 		c.Request.UserAgent(),
 	)
 
@@ -71,7 +63,7 @@ func ServeNewSid(c *gin.Context) {
 		cookieRecord.Sid,
 		cookieMaxAge,
 		"/",
-		getHostname(c),
+		hostname,
 		false,
 		false,
 	)

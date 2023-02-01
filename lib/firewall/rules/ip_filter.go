@@ -8,6 +8,7 @@ import (
 	"http-proxy-firewall/lib/db/country"
 	"http-proxy-firewall/lib/db/google"
 	. "http-proxy-firewall/lib/firewall/interfaces"
+	"http-proxy-firewall/lib/utils"
 	"http-proxy-firewall/lib/utils/slices"
 )
 
@@ -70,7 +71,7 @@ func isCountryAllowed(country string) bool {
 }
 
 func (f *IpFilter) Handler(c *gin.Context) FilterResult {
-	remoteIP := c.RemoteIP()
+	remoteIP := utils.ResolveRemoteIP(c)
 	ip := net.ParseIP(remoteIP)
 
 	breakLoop := loopbackV4.Contains(ip) || loopbackV6.Contains(ip) ||
