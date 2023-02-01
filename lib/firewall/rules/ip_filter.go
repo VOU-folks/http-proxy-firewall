@@ -46,6 +46,11 @@ var ipWhitelist = []string{
 	"10.0.0.3",
 	"10.0.0.4",
 	"10.0.0.5",
+	"10.1.0.1",
+	"10.1.0.2",
+	"10.1.0.3",
+	"10.1.0.4",
+	"10.1.0.5",
 }
 
 func isIpWhitelisted(ipAddress string) bool {

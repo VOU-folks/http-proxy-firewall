@@ -10,9 +10,9 @@ func CreateHttpServer(listenAt string) *http.Server {
 	return &http.Server{
 		Addr:              listenAt,
 		ReadHeaderTimeout: time.Second,
-		ReadTimeout:       10 * time.Second, // 10 * time.Minute,
-		WriteTimeout:      10 * time.Second, // 10 * time.Minute,
-		IdleTimeout:       10 * time.Second, // 60 * time.Second,
+		ReadTimeout:       10 * time.Minute,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       60 * time.Second,
 	}
 }
 
