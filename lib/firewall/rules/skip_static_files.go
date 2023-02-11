@@ -31,9 +31,9 @@ func isPlainTextFile(ext string) bool {
 
 func (ssf *SkipStaticFiles) Handler(c *gin.Context) FilterResult {
 	ext := strings.ToLower(filepath.Ext(c.Request.URL.Path))
-	mime := mime.TypeByExtension(ext)
+	mimeType := mime.TypeByExtension(ext)
 
-	if isImage(mime) ||
+	if isImage(mimeType) ||
 		isCSS(ext) || isJS(ext) ||
 		isPlainTextFile(ext) {
 		return BreakLoopResult
