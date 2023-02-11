@@ -1,7 +1,7 @@
 package rules
 
 import (
-	"fmt"
+	"log"
 	"net"
 	"strings"
 
@@ -25,18 +25,20 @@ func init() {
 	_, network, _ = net.ParseCIDR("127.0.0.1/8")
 	loopbackV6 = network
 
-	whitelist := strings.Split(utils.GetEnv("IP_FILTER_WHITELIST"), ",")
+	envWhitelist := utils.GetEnv("IP_FILTER_WHITELIST")
+	whitelist := strings.Split(envWhitelist, ",")
 	for _, elem := range whitelist {
 		ipWhitelist = append(ipWhitelist, elem)
 	}
 
-	countries := strings.Split(utils.GetEnv("IP_FILTER_ALLOWED_COUNTRIES"), ",")
+	envCountries := utils.GetEnv("IP_FILTER_ALLOWED_COUNTRIES")
+	countries := strings.Split(envCountries, ",")
 	for _, elem := range countries {
 		allowedCountries = append(allowedCountries, strings.Trim(elem, " "))
 	}
 
-	fmt.Println(ipWhitelist)
-	fmt.Println(allowedCountries)
+	log.Println("ip whitelist =", envWhitelist)
+	log.Println("country whitelist =", envCountries)
 }
 
 type IpFilter struct {
