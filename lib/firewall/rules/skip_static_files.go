@@ -25,12 +25,17 @@ func isJS(ext string) bool {
 	return ext == ".js"
 }
 
+func isPlainTextFile(ext string) bool {
+	return ext == ".htm" || ext == ".html" || ext == ".txt"
+}
+
 func (ssf *SkipStaticFiles) Handler(c *gin.Context) FilterResult {
 	ext := strings.ToLower(filepath.Ext(c.Request.URL.Path))
 	mime := mime.TypeByExtension(ext)
 
 	if isImage(mime) ||
-		isCSS(ext) || isJS(ext) {
+		isCSS(ext) || isJS(ext) ||
+		isPlainTextFile(ext) {
 		return BreakLoopResult
 	}
 

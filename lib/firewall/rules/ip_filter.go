@@ -1,7 +1,9 @@
 package rules
 
 import (
+	"fmt"
 	"net"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -22,36 +24,25 @@ func init() {
 
 	_, network, _ = net.ParseCIDR("127.0.0.1/8")
 	loopbackV6 = network
+
+	whitelist := strings.Split(utils.GetEnv("IP_FILTER_WHITELIST"), ",")
+	for _, elem := range whitelist {
+		ipWhitelist = append(ipWhitelist, elem)
+	}
+
+	countries := strings.Split(utils.GetEnv("IP_FILTER_ALLOWED_COUNTRIES"), ",")
+	for _, elem := range countries {
+		allowedCountries = append(allowedCountries, strings.Trim(elem, " "))
+	}
+
+	fmt.Println(ipWhitelist)
+	fmt.Println(allowedCountries)
 }
 
 type IpFilter struct {
 }
 
-var ipWhitelist = []string{
-	"185.22.155.62",
-	"185.22.155.63",
-	"31.31.198.237",
-	"37.187.132.146",
-	"37.187.132.13",
-	"167.233.11.197",
-	"136.243.135.116",
-
-	// internal ips
-	"162.55.45.158",
-	"46.17.40.9",
-	"49.12.112.9",
-	"95.217.28.15",
-	"10.0.0.1",
-	"10.0.0.2",
-	"10.0.0.3",
-	"10.0.0.4",
-	"10.0.0.5",
-	"10.1.0.1",
-	"10.1.0.2",
-	"10.1.0.3",
-	"10.1.0.4",
-	"10.1.0.5",
-}
+var ipWhitelist []string
 
 func isIpWhitelisted(ipAddress string) bool {
 	for _, ip := range ipWhitelist {
@@ -62,14 +53,7 @@ func isIpWhitelisted(ipAddress string) bool {
 	return false
 }
 
-var allowedCountries = []string{
-	"Azerbaijan",
-	// "Turkey",
-	// "Ukraine",
-	// "Georgia",
-	// "Russia",
-	// "Portugal",
-}
+var allowedCountries []string
 
 func isCountryAllowed(country string) bool {
 	return slices.Contains(allowedCountries, country)
