@@ -15,7 +15,7 @@ var cookieMaxAge = int((time.Hour * 24).Seconds())
 type CookieCheckpoint struct {
 }
 
-var sidCookieName = "X-Sid"
+var sidCookieName = "pf-sid"
 
 var ServeNewSidResult = FilterResult{
 	Error:        nil,
