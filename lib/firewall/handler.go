@@ -8,6 +8,7 @@ import (
 	cookieDb "http-proxy-firewall/lib/db/cookie"
 	countryDb "http-proxy-firewall/lib/db/country"
 	googleDb "http-proxy-firewall/lib/db/google"
+	"http-proxy-firewall/lib/utils"
 
 	. "http-proxy-firewall/lib/firewall/interfaces"
 	"http-proxy-firewall/lib/firewall/methods"
@@ -20,6 +21,7 @@ func init() {
 	filters = make([]FilterInterface, 0)
 	filters = append(filters, &rules.SkipStaticFiles{})
 	filters = append(filters, &rules.IpFilter{})
+	filters = append(filters, &rules.DosDetector{})
 	filters = append(filters, &rules.CookieCheckpoint{})
 }
 
@@ -32,8 +34,11 @@ func EnableRedis(enable bool) {
 func Handler(c *gin.Context) {
 	var result FilterResult
 
+	remoteIP := utils.ResolveRemoteIP(c)
+	hostname := utils.ResolveHostname(c)
+
 	for _, filter := range filters {
-		result = filter.Handler(c)
+		result = filter.Handler(c, remoteIP, hostname)
 
 		if result.Passed {
 			if result.BreakLoop { // stop filtering

@@ -29,7 +29,7 @@ func isPlainTextFile(ext string) bool {
 	return ext == ".htm" || ext == ".html" || ext == ".txt"
 }
 
-func (ssf *SkipStaticFiles) Handler(c *gin.Context) FilterResult {
+func (ssf *SkipStaticFiles) Handler(c *gin.Context, remoteIP string, hostname string) FilterResult {
 	ext := strings.ToLower(filepath.Ext(c.Request.URL.Path))
 	mimeType := mime.TypeByExtension(ext)
 

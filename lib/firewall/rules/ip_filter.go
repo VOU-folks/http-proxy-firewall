@@ -61,8 +61,7 @@ func isCountryAllowed(country string) bool {
 	return slices.Contains(allowedCountries, country)
 }
 
-func (f *IpFilter) Handler(c *gin.Context) FilterResult {
-	remoteIP := utils.ResolveRemoteIP(c)
+func (f *IpFilter) Handler(c *gin.Context, remoteIP string, hostname string) FilterResult {
 	ip := net.ParseIP(remoteIP)
 
 	breakLoop := loopbackV4.Contains(ip) || loopbackV6.Contains(ip) ||

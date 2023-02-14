@@ -5,7 +5,7 @@ import (
 )
 
 type FilterInterface interface {
-	Handler(c *gin.Context) FilterResult
+	Handler(c *gin.Context, ip string, hostname string) FilterResult
 }
 
 type FilterResult struct {

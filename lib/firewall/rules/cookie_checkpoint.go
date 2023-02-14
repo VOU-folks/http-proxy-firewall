@@ -15,7 +15,7 @@ var cookieMaxAge = int((time.Hour * 24).Seconds())
 type CookieCheckpoint struct {
 }
 
-var sidCookieName = "pf-sid"
+var sidCookieName = "_X-SID_"
 
 var ServeNewSidResult = FilterResult{
 	Error:        nil,
@@ -24,9 +24,7 @@ var ServeNewSidResult = FilterResult{
 	BreakLoop:    true,
 }
 
-func (cc *CookieCheckpoint) Handler(c *gin.Context) FilterResult {
-	remoteIP := utils.ResolveRemoteIP(c)
-
+func (cc *CookieCheckpoint) Handler(c *gin.Context, remoteIP string, hostname string) FilterResult {
 	sid, err := c.Cookie(sidCookieName)
 	if err != nil {
 		return ServeNewSidResult
@@ -35,7 +33,7 @@ func (cc *CookieCheckpoint) Handler(c *gin.Context) FilterResult {
 	valid := cookie.ValidateSid(
 		sid,
 		remoteIP,
-		utils.ResolveHostname(c),
+		hostname,
 		c.Request.UserAgent(),
 	)
 
