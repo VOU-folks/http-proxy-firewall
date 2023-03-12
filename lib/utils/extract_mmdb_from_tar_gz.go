@@ -38,7 +38,10 @@ func ExtractMMDBFromTarGz(gzipStream io.Reader, destDir string) {
 				if _, err := io.Copy(outFile, tarReader); err != nil {
 					log.Println("ExtractTarGz: Copy() failed: %s", err.Error())
 				}
-				outFile.Close()
+
+				if outFile != nil {
+					_ = outFile.Close()
+				}
 			}
 		}
 	}

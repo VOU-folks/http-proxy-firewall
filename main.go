@@ -48,6 +48,11 @@ func createAppInstance(proxyTo string, withMetrics bool, silentMode bool) *gin.E
 		monitor.Use(app)
 	}
 
+	app.Use(func(c *gin.Context) {
+		c.Header("Connection", "close")
+		c.Next()
+	})
+
 	app.Use(firewall.Handler)
 	app.Use(http.ReverseProxy(proxyTo))
 

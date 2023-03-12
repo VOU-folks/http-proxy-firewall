@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"log"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -119,9 +120,10 @@ func init() {
 type DosDetector struct {
 }
 
-func isAboveThreshold(hostname string) bool {
+func isAboveThreshold(hostname string) (bool, uint64, uint64) {
 	counter := getCounterForHostname(hostname)
-	return (counter / requestCountersSamplingSeconds) > requestThreshold
+	avgPerSecond := counter / requestCountersSamplingSeconds
+	return avgPerSecond > requestThreshold, counter, avgPerSecond
 }
 
 func (f *DosDetector) Handler(c *gin.Context, remoteIP string, hostname string) FilterResult {
@@ -129,10 +131,12 @@ func (f *DosDetector) Handler(c *gin.Context, remoteIP string, hostname string) 
 		return PassToNext
 	}
 
-	if !isAboveThreshold(hostname) {
+	isAbove, counter, avgPerSecond := isAboveThreshold(hostname)
+	if !isAbove {
 		return BreakLoopResult
 	}
 
+	log.Println("isAboveThreshold", hostname, counter, avgPerSecond)
 	setPenaltyForHostname(hostname)
 	return PassToNext
 }
