@@ -106,11 +106,13 @@ func init() {
 	go func() {
 		for {
 			requestCounters.mx.Lock()
-			for _, requestCounter := range requestCounters.counters {
+			counters := requestCounters.counters
+			requestCounters.mx.Unlock()
+
+			for _, requestCounter := range counters {
 				requestCounter.time = time.Now()
 				requestCounter.counter = 0
 			}
-			requestCounters.mx.Unlock()
 
 			time.Sleep(requestCountersResetPeriod)
 		}

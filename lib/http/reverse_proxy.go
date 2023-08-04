@@ -86,6 +86,7 @@ func errorHandler(writer http.ResponseWriter, request *http.Request, err error) 
 func shouldRecover(c *gin.Context) {
 	if r := recover(); r != nil {
 		fmt.Println("Recovered from", r)
+		fmt.Println(c.RemoteIP(), c.Request.Host, c.Request.URL.String())
 		methods.NotFound(c)
 	}
 }
