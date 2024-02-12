@@ -1,15 +1,16 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
-	"log"
-
 	"github.com/gin-gonic/gin"
-
+	"golang.org/x/crypto/acme/autocert"
 	"http-proxy-firewall/lib/firewall"
 	"http-proxy-firewall/lib/firewall/methods"
 	"http-proxy-firewall/lib/http"
 	"http-proxy-firewall/lib/metrics"
+	"log"
+	"os"
 )
 
 func main() {
@@ -30,6 +31,7 @@ func main() {
 
 	app := createAppInstance(*proxyTo, *metricsEnabled, *silentMode)
 
+	go startTlsListeners(listen, app)
 	startListeners(listen, app)
 }
 
@@ -48,27 +50,51 @@ func createAppInstance(proxyTo string, withMetrics bool, silentMode bool) *gin.E
 		monitor.Use(app)
 	}
 
-	app.Use(func(c *gin.Context) {
-		c.Header("Connection", "close")
-		c.Next()
-	})
-
 	app.Use(firewall.Handler)
 	app.Use(http.ReverseProxy(proxyTo))
 
-	// app.NoRoute(methods.NotFound)
 	app.NoMethod(methods.NotFound)
 
 	return app
 }
 
+var autocertManager autocert.Manager
+
+func init() {
+	cwd, _ := os.Getwd()
+	cacheDir := cwd + "/.cache"
+	autocertManager = autocert.Manager{
+		Prompt: autocert.AcceptTOS,
+		Cache:  autocert.DirCache(cacheDir),
+		Email:  "acme@tld.com",
+	}
+}
+
 func startListeners(addr *string, app *gin.Engine) {
 	httpServer := http.CreateHttpServer(*addr)
-	httpServer.Handler = app
+	httpServer.Handler = autocertManager.HTTPHandler(app)
 
 	err := httpServer.ListenAndServe()
 	if err != nil {
 		log.Fatal("httpServer.ListenAndServe:", err.Error())
+	}
+	log.Println("Proxy-firewall listening at", *addr)
+}
+
+func startTlsListeners(addr *string, app *gin.Engine) {
+	httpsServer := http.CreateHttpsServer(
+		":https",
+		&tls.Config{
+			GetCertificate: autocertManager.GetCertificate,
+			MinVersion:     tls.VersionTLS11, // for some unfortunately old clients
+			NextProtos:     []string{"http/1.1"},
+		},
+	)
+	httpsServer.Handler = app
+
+	err := httpsServer.ListenAndServeTLS("", "")
+	if err != nil {
+		log.Fatal("httpsServer.ListenAndServe:", err.Error())
 	}
 	log.Println("Proxy-firewall listening at", *addr)
 }

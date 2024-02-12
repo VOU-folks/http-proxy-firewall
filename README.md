@@ -38,6 +38,7 @@ After building and copying to `/etc/proxy-firewall/proxy-firewall.conf` check fo
 mkdir -p /etc/proxy-firewall/bin
 mkdir -p /etc/proxy-firewall/files
 mkdir -p /etc/proxy-firewall/log
+mkdir -p /etc/proxy-firewall/.cache
 rm /etc/proxy-firewall/log/*
 go build -o /etc/proxy-firewall/bin/proxy-firewall main.go
 chmod +x /etc/proxy-firewall/bin/proxy-firewall

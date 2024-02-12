@@ -1,14 +1,12 @@
 package firewall
 
 import (
-	"log"
-
 	"github.com/gin-gonic/gin"
-
 	cookieDb "http-proxy-firewall/lib/db/cookie"
 	countryDb "http-proxy-firewall/lib/db/country"
 	googleDb "http-proxy-firewall/lib/db/google"
 	"http-proxy-firewall/lib/utils"
+	"log"
 
 	. "http-proxy-firewall/lib/firewall/interfaces"
 	"http-proxy-firewall/lib/firewall/methods"

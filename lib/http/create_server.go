@@ -9,7 +9,7 @@ import (
 func CreateHttpServer(listenAt string) *http.Server {
 	return &http.Server{
 		Addr:              listenAt,
-		ReadHeaderTimeout: time.Second,
+		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       10 * time.Minute,
 		WriteTimeout:      10 * time.Minute,
 		IdleTimeout:       60 * time.Second,
@@ -19,7 +19,7 @@ func CreateHttpServer(listenAt string) *http.Server {
 func CreateHttpsServer(listenAt string, config *tls.Config) *http.Server {
 	return &http.Server{
 		Addr:              listenAt,
-		ReadHeaderTimeout: time.Second,
+		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       10 * time.Minute,
 		WriteTimeout:      10 * time.Minute,
 		IdleTimeout:       60 * time.Second,

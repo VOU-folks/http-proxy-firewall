@@ -68,12 +68,14 @@ func init() {
 	transportStorage.Init()
 }
 
-func requestDirector(req *http.Request, targetServer string, host string) func(req *http.Request) {
+func requestDirector(req *http.Request, targetServer string, host string, proto string) func(req *http.Request) {
 	return func(req *http.Request) {
 		req.URL.Scheme = "http"
 		req.URL.Host = targetServer
 
 		req.Header.Set("Host", host)
+		req.Header.Set("X-Forwarded-Host", host)
+		req.Header.Set("X-Forwarded-Proto", proto)
 	}
 }
 
@@ -85,8 +87,7 @@ func errorHandler(writer http.ResponseWriter, request *http.Request, err error) 
 
 func shouldRecover(c *gin.Context) {
 	if r := recover(); r != nil {
-		fmt.Println("Recovered from", r)
-		fmt.Println(c.RemoteIP(), c.Request.Host, c.Request.URL.String())
+		fmt.Println("Recovered from", r, c.Request.Host, c.Request.URL.String())
 		methods.NotFound(c)
 	}
 }
@@ -95,13 +96,20 @@ func ReverseProxy(targetServer string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer shouldRecover(c)
 
+		proto := "http"
+		if c.Request.TLS != nil {
+			proto = "https"
+			c.Header("Strict-Transport-Security", "max-age=0")
+			c.Header("Connection", "close")
+		}
 		host := c.Request.Host
 
 		proxy := &httputil.ReverseProxy{
-			Director:     requestDirector(c.Request, targetServer, host),
+			Director:     requestDirector(c.Request, targetServer, host, proto),
 			Transport:    transportStorage.Get(),
 			ErrorHandler: errorHandler,
 		}
+
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}
 }

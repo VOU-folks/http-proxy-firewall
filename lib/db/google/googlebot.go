@@ -60,7 +60,7 @@ func (c *GooglebotIPStorageClient) Start() {
 				restoreFromStorageServer()
 			}
 
-			time.Sleep(time.Minute)
+			time.Sleep(time.Second * 10)
 		}
 	}()
 }
@@ -105,7 +105,7 @@ func init() {
 				PoolTimeout: time.Second * 10,
 			},
 		),
-		enabled: false,
+		enabled: true,
 		mx:      sync.Mutex{},
 	}
 
