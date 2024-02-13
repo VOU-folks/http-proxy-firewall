@@ -14,16 +14,21 @@ import (
 	"http-proxy-firewall/lib/utils/slices"
 )
 
-var loopbackV4 *net.IPNet
-var loopbackV6 *net.IPNet
+var whitelistNetworks []*net.IPNet
 
 func init() {
 	var network *net.IPNet
-	_, network, _ = net.ParseCIDR("127.0.0.1/8")
-	loopbackV4 = network
+	whitelistNetworks = make([]*net.IPNet, 0, 10)
 
 	_, network, _ = net.ParseCIDR("127.0.0.1/8")
-	loopbackV6 = network
+	whitelistNetworks = append(whitelistNetworks, network)
+
+	envWhitelistNets := utils.GetEnv("IP_FILTER_WHITELIST_NETWORKS")
+	whitelistNets := strings.Split(envWhitelistNets, ",")
+	for _, elem := range whitelistNets {
+		_, network, _ = net.ParseCIDR(elem)
+		whitelistNetworks = append(whitelistNetworks, network)
+	}
 
 	envWhitelist := utils.GetEnv("IP_FILTER_WHITELIST")
 	whitelist := strings.Split(envWhitelist, ",")
@@ -46,6 +51,16 @@ type IpFilter struct {
 
 var ipWhitelist []string
 
+func isIpInWhitelistedNetwork(ip net.IP) bool {
+	for _, network := range whitelistNetworks {
+		if network.Contains(ip) {
+			//log.Println("IP", ip, "is in whitelisted network", network.String())
+			return true
+		}
+	}
+	return false
+}
+
 func isIpWhitelisted(ipAddress string) bool {
 	for _, ip := range ipWhitelist {
 		if ip == ipAddress {
@@ -64,7 +79,7 @@ func isCountryAllowed(country string) bool {
 func (f *IpFilter) Handler(c *gin.Context, remoteIP string, hostname string) FilterResult {
 	ip := net.ParseIP(remoteIP)
 
-	breakLoop := loopbackV4.Contains(ip) || loopbackV6.Contains(ip) ||
+	breakLoop := isIpInWhitelistedNetwork(ip) ||
 		isIpWhitelisted(remoteIP) || google.IsGoogleBot(ip)
 	if breakLoop {
 		return BreakLoopResult

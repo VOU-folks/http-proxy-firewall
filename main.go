@@ -9,6 +9,7 @@ import (
 	"http-proxy-firewall/lib/firewall/methods"
 	"http-proxy-firewall/lib/http"
 	"http-proxy-firewall/lib/metrics"
+	"http-proxy-firewall/lib/utils"
 	"log"
 	"os"
 )
@@ -66,7 +67,7 @@ func init() {
 	autocertManager = autocert.Manager{
 		Prompt: autocert.AcceptTOS,
 		Cache:  autocert.DirCache(cacheDir),
-		Email:  "acme@tld.com",
+		Email:  utils.GetEnv("LETSENCRYPT_EMAIL"),
 	}
 }
 
