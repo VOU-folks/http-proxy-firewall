@@ -31,7 +31,7 @@ func (ts *TransportStorage) Init() {
 	for n := 0; n < ts.size; n++ {
 		ts.transports[n] = &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,
-			TLSHandshakeTimeout:   3 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: 10 * time.Minute,
 			IdleConnTimeout:       1 * time.Minute,
 			DisableKeepAlives:     false,
@@ -87,8 +87,13 @@ func errorHandler(writer http.ResponseWriter, request *http.Request, err error) 
 
 func shouldRecover(c *gin.Context) {
 	if r := recover(); r != nil {
-		fmt.Println("Recovered from", r, c.Request.Host, c.Request.URL.String())
-		methods.NotFound(c)
+		fmt.Println(
+			"Recovered from", r,
+			c.Request.RemoteAddr,
+			c.Request.Host,
+			c.Request.URL.Path,
+		)
+		methods.Refresh(c)
 	}
 }
 

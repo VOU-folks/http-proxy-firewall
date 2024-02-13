@@ -64,10 +64,13 @@ var autocertManager autocert.Manager
 func init() {
 	cwd, _ := os.Getwd()
 	cacheDir := cwd + "/.cache"
+	email := utils.GetEnv("LETSENCRYPT_EMAIL")
+	log.Println("LETSENCRYPT_EMAIL =", email)
+
 	autocertManager = autocert.Manager{
 		Prompt: autocert.AcceptTOS,
 		Cache:  autocert.DirCache(cacheDir),
-		Email:  utils.GetEnv("LETSENCRYPT_EMAIL"),
+		Email:  email,
 	}
 }
 
