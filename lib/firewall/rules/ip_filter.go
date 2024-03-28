@@ -86,6 +86,7 @@ func (f *IpFilter) Handler(c *gin.Context, remoteIP string, hostname string) Fil
 	}
 
 	resolvedCountry := country.ResolveCountryByIP(remoteIP)
+	
 	if resolvedCountry != "" {
 		if isCountryAllowed(resolvedCountry) {
 			return BreakLoopResult

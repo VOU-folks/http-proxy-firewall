@@ -52,6 +52,7 @@ func createAppInstance(proxyTo string, withMetrics bool, silentMode bool) *gin.E
 	}
 
 	app.Use(firewall.Handler)
+	app.Use(firewall.BotHandler)
 	app.Use(http.ReverseProxy(proxyTo))
 
 	app.NoMethod(methods.NotFound)
