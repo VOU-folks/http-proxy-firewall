@@ -3,118 +3,84 @@ package http
 import (
 	"fmt"
 	"log"
-	"net/http"
-	"net/http/httputil"
-	"runtime"
-	"strings"
-	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/proxy"
 
 	"http-proxy-firewall/lib/firewall/methods"
 )
 
-type TransportStorage struct {
-	transports []*http.Transport
-	seq        int
-	size       int
-	mx         sync.Mutex
-}
-
-func (ts *TransportStorage) Init() {
-	transportsCount := runtime.NumCPU() * 2
-
-	ts.transports = make([]*http.Transport, transportsCount)
-	ts.mx = sync.Mutex{}
-	ts.size = transportsCount
-	for n := 0; n < ts.size; n++ {
-		ts.transports[n] = &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 10 * time.Minute,
-			IdleConnTimeout:       1 * time.Minute,
-			DisableKeepAlives:     false,
-			MaxIdleConns:          100,
-			MaxIdleConnsPerHost:   10,
-			MaxConnsPerHost:       0,
-			ForceAttemptHTTP2:     false,
-		}
-	}
-
-	log.Println("Created ", ts.size, " http transports")
-}
-
-func (ts *TransportStorage) Get() *http.Transport {
-	var transport *http.Transport
-
-	ts.mx.Lock()
-
-	if ts.seq == ts.size {
-		ts.seq = 0
-	}
-	transport = ts.transports[ts.seq]
-	ts.seq++
-
-	ts.mx.Unlock()
-
-	return transport
-}
-
-var transportStorage *TransportStorage
-
-func init() {
-	transportStorage = &TransportStorage{}
-	transportStorage.Init()
-}
-
-func requestDirector(req *http.Request, targetServer string, host string, proto string) func(req *http.Request) {
-	return func(req *http.Request) {
-		req.URL.Scheme = "http"
-		req.URL.Host = targetServer
-
-		req.Header.Set("Host", host)
-		req.Header.Set("X-Forwarded-Host", host)
-		req.Header.Set("X-Forwarded-Proto", proto)
-	}
-}
-
-func errorHandler(writer http.ResponseWriter, request *http.Request, err error) {
-	if !strings.Contains(err.Error(), "context canceled") {
-		log.Println("ErrorHandler in ReverseProxy", err.Error())
-	}
-}
-
-func shouldRecover(c *gin.Context) {
+func shouldRecover(c *fiber.Ctx) {
 	if r := recover(); r != nil {
 		fmt.Println(
 			"Recovered from", r,
-			c.Request.RemoteAddr,
-			c.Request.Host,
-			c.Request.URL.Path,
+			c.IP(),
+			c.Hostname(),
+			c.Path(),
 		)
 		methods.Refresh(c)
 	}
 }
 
-func ReverseProxy(targetServer string) gin.HandlerFunc {
-	return func(c *gin.Context) {
+func ReverseProxy(targetServer string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
 		defer shouldRecover(c)
 
 		proto := "http"
-		if c.Request.TLS != nil {
+		if c.Protocol() == "https" {
 			proto = "https"
-			c.Header("Strict-Transport-Security", "max-age=0")
-			c.Header("Connection", "close")
+			c.Set("Strict-Transport-Security", "max-age=0")
+			c.Set("Connection", "close")
 		}
-		host := c.Request.Host
+		host := c.Hostname()
 
-		proxy := &httputil.ReverseProxy{
-			Director:     requestDirector(c.Request, targetServer, host, proto),
-			Transport:    transportStorage.Get(),
-			ErrorHandler: errorHandler,
+		// Set forwarding headers
+		c.Request().Header.Set("X-Forwarded-Host", host)
+		c.Request().Header.Set("X-Forwarded-Proto", proto)
+		c.Request().Header.Set("Host", host)
+
+		// Use Fiber's proxy middleware
+		url := "http://" + targetServer
+		if err := proxy.Do(c, url); err != nil {
+			log.Println("ErrorHandler in ReverseProxy", err.Error())
+			return err
 		}
 
-		proxy.ServeHTTP(c.Writer, c.Request)
+		// Modify response headers
+		c.Response().Header.Del("Server")
+
+		return nil
 	}
+}
+
+// ProxyConfig creates a configured proxy with custom settings
+func ProxyConfig(targetServer string) fiber.Handler {
+	config := proxy.Config{
+		Servers: []string{"http://" + targetServer},
+		ModifyRequest: func(c *fiber.Ctx) error {
+			proto := "http"
+			if c.Protocol() == "https" {
+				proto = "https"
+			}
+			host := c.Hostname()
+
+			c.Request().Header.Set("X-Forwarded-Host", host)
+			c.Request().Header.Set("X-Forwarded-Proto", proto)
+			c.Request().Header.Set("Host", host)
+
+			return nil
+		},
+		ModifyResponse: func(c *fiber.Ctx) error {
+			c.Response().Header.Del("Server")
+			if c.Protocol() == "https" {
+				c.Set("Strict-Transport-Security", "max-age=0")
+				c.Set("Connection", "close")
+			}
+			return nil
+		},
+		Timeout: 10 * time.Minute,
+	}
+
+	return proxy.Balancer(config)
 }

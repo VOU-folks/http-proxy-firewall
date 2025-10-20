@@ -1,15 +1,11 @@
 package methods
 
 import (
-	"net/http"
-
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 )
 
-func ForbiddenCountry(country string, ip string) func(ctx *gin.Context) {
-	return func(c *gin.Context) {
-		c.Writer.WriteHeader(http.StatusOK)
-		c.Writer.Write([]byte("Forbidden country: " + country + " [ip: " + ip + "]"))
-		c.Abort()
+func ForbiddenCountry(country string, ip string) func(ctx *fiber.Ctx) error {
+	return func(c *fiber.Ctx) error {
+		return c.Status(fiber.StatusForbidden).SendString("Forbidden country: " + country + " [ip: " + ip + "]")
 	}
 }

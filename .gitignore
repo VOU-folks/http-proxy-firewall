@@ -1,5 +1,7 @@
+CLAUDE.md
 .idea
 .env
 go.sum
 __debug_bin
 tmp
+.upload

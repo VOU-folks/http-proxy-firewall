@@ -5,11 +5,12 @@ import (
 	"net"
 	"strings"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 
 	"http-proxy-firewall/lib/db/country"
 	"http-proxy-firewall/lib/db/google"
 	. "http-proxy-firewall/lib/firewall/interfaces"
+	"http-proxy-firewall/lib/firewall/methods"
 	"http-proxy-firewall/lib/utils"
 	"http-proxy-firewall/lib/utils/slices"
 )
@@ -42,8 +43,18 @@ func init() {
 		allowedCountries = append(allowedCountries, strings.Trim(elem, " "))
 	}
 
+	envBlacklistedCountries := utils.GetEnv("IP_FILTER_BLACKLISTED_COUNTRIES")
+	blacklistedCountriesSlice := strings.Split(envBlacklistedCountries, ",")
+	for _, elem := range blacklistedCountriesSlice {
+		trimmed := strings.Trim(elem, " ")
+		if trimmed != "" {
+			blacklistedCountries = append(blacklistedCountries, trimmed)
+		}
+	}
+
 	log.Println("ip whitelist =", envWhitelist)
 	log.Println("country whitelist =", envCountries)
+	log.Println("country blacklist =", envBlacklistedCountries)
 }
 
 type IpFilter struct {
@@ -71,12 +82,17 @@ func isIpWhitelisted(ipAddress string) bool {
 }
 
 var allowedCountries []string
+var blacklistedCountries []string
 
 func isCountryAllowed(country string) bool {
 	return slices.Contains(allowedCountries, country)
 }
 
-func (f *IpFilter) Handler(c *gin.Context, remoteIP string, hostname string) FilterResult {
+func isCountryBlacklisted(country string) bool {
+	return slices.Contains(blacklistedCountries, country)
+}
+
+func (f *IpFilter) Handler(c *fiber.Ctx, remoteIP string, hostname string) FilterResult {
 	ip := net.ParseIP(remoteIP)
 
 	breakLoop := isIpInWhitelistedNetwork(ip) ||
@@ -86,15 +102,18 @@ func (f *IpFilter) Handler(c *gin.Context, remoteIP string, hostname string) Fil
 	}
 
 	resolvedCountry := country.ResolveCountryByIP(remoteIP)
-	
+
 	if resolvedCountry != "" {
 		if isCountryAllowed(resolvedCountry) {
 			return BreakLoopResult
 		}
 
-		// result := AbortRequestResult
-		// result.AbortHandler = methods.ForbiddenCountry(resolvedCountry, remoteIP)
-		// return result
+		// Check if country is blacklisted
+		if isCountryBlacklisted(resolvedCountry) {
+			result := AbortRequestResult
+			result.AbortHandler = methods.ForbiddenCountry(resolvedCountry, remoteIP)
+			return result
+		}
 
 		return PassToNext
 	}

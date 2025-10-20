@@ -7,7 +7,7 @@ WantedBy=multi-user.target
 
 [Service]
 EnvironmentFile=/etc/proxy-firewall/proxy-firewall.conf
-ExecStart=/etc/proxy-firewall/bin/proxy-firewall $SERVICE_ARGS
+ExecStart=/bin/bash -c 'GOMAXPROCS=$GOMAXPROCS; /etc/proxy-firewall/bin/proxy-firewall $PF_LISTEN_AT $PF_PROXY_TO $PF_ENABLE_METRICS $PF_ENABLE_SILENT_MODE $PF_ENABLE_REDIS'
 ExecStop=/bin/kill -s TERM $MAINPID
 WorkingDirectory=/etc/proxy-firewall
 User=root

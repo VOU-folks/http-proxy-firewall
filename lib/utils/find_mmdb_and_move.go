@@ -1,13 +1,14 @@
 package utils
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/oschwald/maxminddb-golang"
 )
 
-func FindMMDBAndMove(searchInPath string, moveToDir string, destFileName string) {
+func FindMMDBAndMove(searchInPath string, moveToDir string, destFileName string) error {
 	done := false
 	_ = filepath.Walk(
 		searchInPath,
@@ -23,7 +24,7 @@ func FindMMDBAndMove(searchInPath string, moveToDir string, destFileName string)
 			if filepath.Ext(info.Name()) == ".mmdb" {
 				db, err := maxminddb.Open(path)
 				if err != nil {
-					return nil
+					return fmt.Errorf("Error opening DB: %s", err.Error())
 				}
 
 				if db.Metadata.RecordSize > 0 {
@@ -38,4 +39,6 @@ func FindMMDBAndMove(searchInPath string, moveToDir string, destFileName string)
 			return nil
 		},
 	)
+
+	return nil
 }

@@ -1,11 +1,9 @@
 package methods
 
 import (
-	"net/http"
-
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 )
 
-func Refresh(c *gin.Context) {
-	c.Redirect(http.StatusFound, c.Request.URL.String())
+func Refresh(c *fiber.Ctx) error {
+	return c.Redirect(c.OriginalURL(), fiber.StatusFound)
 }

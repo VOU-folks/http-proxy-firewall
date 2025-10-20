@@ -1,7 +1,7 @@
 package custom
 
 import (
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 
 	. "http-proxy-firewall/lib/firewall/interfaces"
 	. "http-proxy-firewall/lib/firewall/rules"
@@ -10,36 +10,16 @@ import (
 type BlockSensitiveUrls struct {
 }
 
-func (bsu *BlockSensitiveUrls) Handler(c *gin.Context, remoteIP string, hostname string) FilterResult {
-	if c.Request.URL.Query().Has("ps") {
-		return AbortRequestResult
+func (bsu *BlockSensitiveUrls) Handler(c *fiber.Ctx, remoteIP string, hostname string) FilterResult {
+	sensitiveParams := []string{
+		"ps", "pw", "pwd", "pass", "password",
+		"secret", "api_key", "tkn", "token", "access_token",
 	}
-	if c.Request.URL.Query().Has("pw") {
-		return AbortRequestResult
-	}
-	if c.Request.URL.Query().Has("pwd") {
-		return AbortRequestResult
-	}
-	if c.Request.URL.Query().Has("pass") {
-		return AbortRequestResult
-	}
-	if c.Request.URL.Query().Has("password") {
-		return AbortRequestResult
-	}
-	if c.Request.URL.Query().Has("secret") {
-		return AbortRequestResult
-	}
-	if c.Request.URL.Query().Has("api_key") {
-		return AbortRequestResult
-	}
-	if c.Request.URL.Query().Has("tkn") {
-		return AbortRequestResult
-	}
-	if c.Request.URL.Query().Has("token") {
-		return AbortRequestResult
-	}
-	if c.Request.URL.Query().Has("access_token") {
-		return AbortRequestResult
+
+	for _, param := range sensitiveParams {
+		if c.Query(param) != "" {
+			return AbortRequestResult
+		}
 	}
 
 	return PassToNext

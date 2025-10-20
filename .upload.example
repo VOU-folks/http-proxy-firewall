@@ -1,0 +1,5 @@
+# rename me as .upload before launching ./upload.sh
+server=your-server.example.com
+user=your-username
+ssh-key=~/.ssh/id_rsa
+folder=/path/to/remote/deployment/folder

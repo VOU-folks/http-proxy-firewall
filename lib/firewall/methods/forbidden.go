@@ -1,12 +1,9 @@
 package methods
 
 import (
-	"net/http"
-
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 )
 
-func Forbidden(c *gin.Context) {
-	c.Writer.WriteHeader(http.StatusForbidden)
-	c.Abort()
+func Forbidden(c *fiber.Ctx) error {
+	return c.SendStatus(fiber.StatusForbidden)
 }

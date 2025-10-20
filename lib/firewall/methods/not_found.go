@@ -1,12 +1,9 @@
 package methods
 
 import (
-	"net/http"
-
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 )
 
-func NotFound(c *gin.Context) {
-	c.Writer.WriteHeader(http.StatusNotFound)
-	c.Abort()
+func NotFound(c *fiber.Ctx) error {
+	return c.SendStatus(fiber.StatusNotFound)
 }

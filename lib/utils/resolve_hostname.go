@@ -3,11 +3,16 @@ package utils
 import (
 	"strings"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 )
 
-func ResolveHostname(c *gin.Context) string {
-	host := c.Request.Host
+func ResolveHostname(c *fiber.Ctx) string {
+	// Try X-Forwarded-Host first
+	host := c.Get("X-Forwarded-Host")
+	if host == "" {
+		host = c.Hostname()
+	}
+
 	if strings.HasPrefix(host, "www.") {
 		host = strings.TrimLeft(host, "www.")
 	}

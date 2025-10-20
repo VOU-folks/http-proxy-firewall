@@ -3,7 +3,7 @@ package rules
 import (
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 
 	"http-proxy-firewall/lib/db/cookie"
 	. "http-proxy-firewall/lib/firewall/interfaces"
@@ -24,9 +24,9 @@ var ServeNewSidResult = FilterResult{
 	BreakLoop:    true,
 }
 
-func (cc *CookieCheckpoint) Handler(c *gin.Context, remoteIP string, hostname string) FilterResult {
-	sid, err := c.Cookie(sidCookieName)
-	if err != nil {
+func (cc *CookieCheckpoint) Handler(c *fiber.Ctx, remoteIP string, hostname string) FilterResult {
+	sid := c.Cookies(sidCookieName)
+	if sid == "" {
 		return ServeNewSidResult
 	}
 
@@ -34,7 +34,7 @@ func (cc *CookieCheckpoint) Handler(c *gin.Context, remoteIP string, hostname st
 		sid,
 		remoteIP,
 		hostname,
-		c.Request.UserAgent(),
+		c.Get("User-Agent"),
 	)
 
 	if !valid {
@@ -44,30 +44,28 @@ func (cc *CookieCheckpoint) Handler(c *gin.Context, remoteIP string, hostname st
 	return PassToNext
 }
 
-func ServeNewSid(c *gin.Context) {
+func ServeNewSid(c *fiber.Ctx) error {
 	remoteIP := utils.ResolveRemoteIP(c)
 	hostname := utils.ResolveHostname(c)
 
 	cookieRecord := cookie.NewCookieRecord(
 		remoteIP,
 		hostname,
-		c.Request.UserAgent(),
+		c.Get("User-Agent"),
 	)
 
 	cookie.StoreCookieRecord(cookieRecord)
 
-	c.SetCookie(
-		sidCookieName,
-		cookieRecord.Sid,
-		cookieMaxAge,
-		"/",
-		hostname,
-		false,
-		false,
-	)
+	c.Cookie(&fiber.Cookie{
+		Name:     sidCookieName,
+		Value:    cookieRecord.Sid,
+		MaxAge:   cookieMaxAge,
+		Path:     "/",
+		Domain:   hostname,
+		Secure:   false,
+		HTTPOnly: false,
+	})
 
-	c.Writer.WriteHeader(200)
-	c.Writer.Header().Set("Content-Type", "text/html")
-	c.Writer.Write([]byte("<meta http-equiv=\"refresh\" content=\"0\">"))
-	c.Abort()
+	c.Set("Content-Type", "text/html")
+	return c.SendString("<meta http-equiv=\"refresh\" content=\"0\">")
 }

@@ -1,14 +1,25 @@
 package utils
 
 import (
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 	"strings"
 )
 
-func ResolveRemoteIP(c *gin.Context) string {
-	cfIP := strings.TrimSpace(c.Request.Header.Get("CF-Connecting-IP"))
+func ResolveRemoteIP(c *fiber.Ctx) string {
+	cfIP := strings.TrimSpace(c.Get("CF-Connecting-IP"))
 	if cfIP != "" {
 		return cfIP
 	}
-	return c.ClientIP()
+
+	// Try X-Forwarded-For header
+	xff := strings.TrimSpace(c.Get("X-Forwarded-For"))
+	if xff != "" {
+		ips := strings.Split(xff, ",")
+		if len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	// Fallback to direct IP
+	return c.IP()
 }

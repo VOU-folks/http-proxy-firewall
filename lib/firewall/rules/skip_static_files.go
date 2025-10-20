@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 
 	. "http-proxy-firewall/lib/firewall/interfaces"
 )
@@ -29,8 +29,8 @@ func isPlainTextFile(ext string) bool {
 	return ext == ".htm" || ext == ".html" || ext == ".txt"
 }
 
-func (ssf *SkipStaticFiles) Handler(c *gin.Context, remoteIP string, hostname string) FilterResult {
-	ext := strings.ToLower(filepath.Ext(c.Request.URL.Path))
+func (ssf *SkipStaticFiles) Handler(c *fiber.Ctx, remoteIP string, hostname string) FilterResult {
+	ext := strings.ToLower(filepath.Ext(c.Path()))
 	mimeType := mime.TypeByExtension(ext)
 
 	if isImage(mimeType) ||

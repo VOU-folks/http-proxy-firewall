@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 
 	. "http-proxy-firewall/lib/firewall/interfaces"
 	"http-proxy-firewall/lib/utils"
@@ -128,7 +128,7 @@ func isAboveThreshold(hostname string) (bool, uint64, uint64) {
 	return avgPerSecond > requestThreshold, counter, avgPerSecond
 }
 
-func (f *DosDetector) Handler(c *gin.Context, remoteIP string, hostname string) FilterResult {
+func (f *DosDetector) Handler(c *fiber.Ctx, remoteIP string, hostname string) FilterResult {
 	if hostnameUnderPenalty(hostname) {
 		return PassToNext
 	}

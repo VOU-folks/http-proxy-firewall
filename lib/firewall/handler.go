@@ -1,7 +1,7 @@
 package firewall
 
 import (
-	"github.com/gin-gonic/gin"
+	"github.com/gofiber/fiber/v2"
 	cookieDb "http-proxy-firewall/lib/db/cookie"
 	countryDb "http-proxy-firewall/lib/db/country"
 	googleDb "http-proxy-firewall/lib/db/google"
@@ -31,7 +31,7 @@ func EnableRedis(enable bool) {
 	googleDb.EnableRedisClient(enable)
 }
 
-func Handler(c *gin.Context) {
+func Handler(c *fiber.Ctx) error {
 	var result FilterResult
 
 	remoteIP := utils.ResolveRemoteIP(c)
@@ -42,7 +42,7 @@ func Handler(c *gin.Context) {
 
 		if result.Passed {
 			if result.BreakLoop { // stop filtering
-				return
+				return c.Next()
 			}
 			continue // passed current filter, skip to next
 		}
@@ -53,12 +53,13 @@ func Handler(c *gin.Context) {
 		}
 
 		if result.AbortHandler != nil {
-			result.AbortHandler(c)
-			return
+			return result.AbortHandler(c)
 		}
 
-		methods.Forbidden(c)
+		return methods.Forbidden(c)
 	}
+
+	return c.Next()
 }
 
 var botUserAgents []string
@@ -122,13 +123,13 @@ func init() {
 	}
 }
 
-func BotHandler(c *gin.Context) {
+func BotHandler(c *fiber.Ctx) error {
 	var result FilterResult
 
 	remoteIP := utils.ResolveRemoteIP(c)
 	hostname := utils.ResolveHostname(c)
 
-	userAgent := strings.ToLower(c.Request.UserAgent())
+	userAgent := strings.ToLower(c.Get("User-Agent"))
 
 	isBot := false
 
@@ -145,7 +146,7 @@ func BotHandler(c *gin.Context) {
 
 			if result.Passed {
 				if result.BreakLoop { // stop filtering
-					return
+					return c.Next()
 				}
 				continue // passed current filter, skip to next
 			}
@@ -155,14 +156,15 @@ func BotHandler(c *gin.Context) {
 				log.Println("Error in firewall", result.Error.Error())
 			}
 
-			//log.Println("Bot blocked", c.Request.Host, c.Request.URL.String())
+			//log.Println("Bot blocked", c.Hostname(), c.OriginalURL())
 
 			if result.AbortHandler != nil {
-				result.AbortHandler(c)
-				return
+				return result.AbortHandler(c)
 			}
 
-			methods.Forbidden(c)
+			return methods.Forbidden(c)
 		}
 	}
+
+	return c.Next()
 }

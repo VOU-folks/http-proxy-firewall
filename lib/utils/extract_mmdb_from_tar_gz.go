@@ -3,16 +3,16 @@ package utils
 import (
 	"archive/tar"
 	"compress/gzip"
+	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 )
 
-func ExtractMMDBFromTarGz(gzipStream io.Reader, destDir string) {
+func ExtractMMDBFromTarGz(gzipStream io.Reader, destDir string) error {
 	uncompressedStream, err := gzip.NewReader(gzipStream)
 	if err != nil {
-		log.Println("ExtractTarGz: NewReader failed")
+		return fmt.Errorf("ExtractTarGz: NewReader failed")
 	}
 
 	tarReader := tar.NewReader(uncompressedStream)
@@ -25,7 +25,7 @@ func ExtractMMDBFromTarGz(gzipStream io.Reader, destDir string) {
 		}
 
 		if err != nil {
-			log.Println("ExtractTarGz: Next() failed: %s", err.Error())
+			return fmt.Errorf("ExtractTarGz: Next() failed: %s", err.Error())
 		}
 
 		switch header.Typeflag {
@@ -33,10 +33,10 @@ func ExtractMMDBFromTarGz(gzipStream io.Reader, destDir string) {
 			if filepath.Ext(header.Name) == ".mmdb" {
 				outFile, err := os.Create(destDir + "/" + filepath.Base(header.Name))
 				if err != nil {
-					log.Println("ExtractTarGz: Create() failed: %s", err.Error())
+					return fmt.Errorf("ExtractTarGz: Create() failed: %s", err.Error())
 				}
 				if _, err := io.Copy(outFile, tarReader); err != nil {
-					log.Println("ExtractTarGz: Copy() failed: %s", err.Error())
+					return fmt.Errorf("ExtractTarGz: Copy() failed: %s", err.Error())
 				}
 
 				if outFile != nil {
@@ -45,4 +45,6 @@ func ExtractMMDBFromTarGz(gzipStream io.Reader, destDir string) {
 			}
 		}
 	}
+
+	return nil
 }

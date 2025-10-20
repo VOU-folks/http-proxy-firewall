@@ -76,7 +76,10 @@ func initializeDB() {
 	maxmindFileName := "geo.mmdb"
 	maxmindFile := filesDir + "/" + maxmindFileName
 
-	downloadGeoDB(filesDir, maxmindFileName)
+	err = downloadGeoDB(filesDir, maxmindFileName)
+	if err != nil {
+		log.Println("Cannot download maxmind file", maxmindFile, err.Error())
+	}
 
 	maxMindDB, err = maxminddb.Open(filesDir + "/" + maxmindFileName)
 	if err != nil {
@@ -85,7 +88,9 @@ func initializeDB() {
 	}
 }
 
-func downloadGeoDB(destDir string, destFileName string) {
+func downloadGeoDB(destDir string, destFileName string) error {
+	var err error
+
 	licenseKey := GetEnv("MAXMIND_LICENSE_KEY")
 	source := fmt.Sprintf(
 		"https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=%s&suffix=tar.gz",
@@ -100,12 +105,21 @@ func downloadGeoDB(destDir string, destFileName string) {
 	}
 	resp, err := client.Get(source)
 	if err != nil {
-		log.Println("downloadGeoDB", err.Error())
+		return err
 	}
 	defer resp.Body.Close()
 
-	ExtractMMDBFromTarGz(resp.Body, destDir)
-	FindMMDBAndMove(destDir, destDir, destFileName)
+	err = ExtractMMDBFromTarGz(resp.Body, destDir)
+	if err != nil {
+		return err
+	}
+
+	err = FindMMDBAndMove(destDir, destDir, destFileName)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 var maxMindDB *maxminddb.Reader
