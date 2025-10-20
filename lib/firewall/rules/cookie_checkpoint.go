@@ -7,7 +7,13 @@ import (
 
 	"http-proxy-firewall/lib/db/cookie"
 	. "http-proxy-firewall/lib/firewall/interfaces"
-	"http-proxy-firewall/lib/utils"
+)
+
+const (
+	sidCookieName        = "_X-SID_"
+	htmlAutoRefresh      = "<meta http-equiv=\"refresh\" content=\"0\">"
+	headerContentType    = "Content-Type"
+	headerContentTypeVal = "text/html"
 )
 
 var cookieMaxAge = int((time.Hour * 24).Seconds())
@@ -15,45 +21,38 @@ var cookieMaxAge = int((time.Hour * 24).Seconds())
 type CookieCheckpoint struct {
 }
 
-var sidCookieName = "_X-SID_"
-
-var ServeNewSidResult = FilterResult{
-	Error:        nil,
-	AbortHandler: ServeNewSid,
-	Passed:       false,
-	BreakLoop:    true,
-}
-
 func (cc *CookieCheckpoint) Handler(c *fiber.Ctx, remoteIP string, hostname string) FilterResult {
 	sid := c.Cookies(sidCookieName)
 	if sid == "" {
-		return ServeNewSidResult
+		return createServeNewSidResult(remoteIP, hostname, c.Get("User-Agent"))
 	}
 
-	valid := cookie.ValidateSid(
-		sid,
-		remoteIP,
-		hostname,
-		c.Get("User-Agent"),
-	)
+	// Cache User-Agent to avoid duplicate c.Get() call
+	userAgent := c.Get("User-Agent")
+	valid := cookie.ValidateSid(sid, remoteIP, hostname, userAgent)
 
 	if !valid {
-		return ServeNewSidResult
+		return createServeNewSidResult(remoteIP, hostname, userAgent)
 	}
 
 	return PassToNext
 }
 
-func ServeNewSid(c *fiber.Ctx) error {
-	remoteIP := utils.ResolveRemoteIP(c)
-	hostname := utils.ResolveHostname(c)
+// createServeNewSidResult creates a FilterResult with a closure that captures the context
+func createServeNewSidResult(remoteIP, hostname, userAgent string) FilterResult {
+	return FilterResult{
+		Error:     nil,
+		Passed:    false,
+		BreakLoop: true,
+		AbortHandler: func(c *fiber.Ctx) error {
+			return serveNewSid(c, remoteIP, hostname, userAgent)
+		},
+	}
+}
 
-	cookieRecord := cookie.NewCookieRecord(
-		remoteIP,
-		hostname,
-		c.Get("User-Agent"),
-	)
-
+// serveNewSid creates a new session cookie and returns an auto-refresh page
+func serveNewSid(c *fiber.Ctx, remoteIP, hostname, userAgent string) error {
+	cookieRecord := cookie.NewCookieRecord(remoteIP, hostname, userAgent)
 	cookie.StoreCookieRecord(cookieRecord)
 
 	c.Cookie(&fiber.Cookie{
@@ -66,6 +65,6 @@ func ServeNewSid(c *fiber.Ctx) error {
 		HTTPOnly: false,
 	})
 
-	c.Set("Content-Type", "text/html")
-	return c.SendString("<meta http-equiv=\"refresh\" content=\"0\">")
+	c.Set(headerContentType, headerContentTypeVal)
+	return c.SendString(htmlAutoRefresh)
 }

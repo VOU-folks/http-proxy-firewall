@@ -15,6 +15,7 @@ import (
 )
 
 var cookieStorageDuration = time.Hour * 24
+var redisTimeout = time.Second * 5
 
 var cookieStorage *CookieStorage
 var cookieStorageClient *CookieStorageClient
@@ -23,7 +24,7 @@ var cookieAccessJournal *CookieAccessJournal
 
 type CookieAccessJournal struct {
 	records map[string]time.Time
-	mx      sync.Mutex
+	mx      sync.RWMutex
 }
 
 func (j *CookieAccessJournal) Accessed(sid string) {
@@ -40,18 +41,19 @@ func (j *CookieAccessJournal) Delete(sid string) {
 
 func (j *CookieAccessJournal) CleanUnusedCookies(cookieStorage *CookieStorage) {
 	var sids []string
-	var journal map[string]time.Time
+	now := time.Now()
+	expirationThreshold := cookieStorageDuration.Seconds()
 
-	j.mx.Lock()
-	journal = j.records
-	j.mx.Unlock()
-
-	for sid, accessTime := range journal {
-		if time.Now().Sub(accessTime).Seconds() < cookieStorageDuration.Seconds() {
+	// Collect expired SIDs while holding read lock
+	j.mx.RLock()
+	for sid, accessTime := range j.records {
+		if now.Sub(accessTime).Seconds() >= expirationThreshold {
 			sids = append(sids, sid)
 		}
 	}
+	j.mx.RUnlock()
 
+	// Delete expired cookies
 	if len(sids) > 0 {
 		for _, sid := range sids {
 			j.Delete(sid)
@@ -82,13 +84,13 @@ func (cr *CookieRecord) MarshalBinary() ([]byte, error) {
 
 type CookieStorage struct {
 	storage map[string]*CookieRecord
-	mx      sync.Mutex
+	mx      sync.RWMutex
 }
 
 func (cs *CookieStorage) Get(key string) *CookieRecord {
-	cs.mx.Lock()
+	cs.mx.RLock()
 	result := cs.storage[key]
-	cs.mx.Unlock()
+	cs.mx.RUnlock()
 
 	return result
 }
@@ -113,7 +115,7 @@ type CookieStorageClient struct {
 	client    *redis.Client
 	enabled   bool
 	connected bool
-	mx        sync.Mutex
+	mx        sync.RWMutex
 }
 
 func EnableRedisClient(enable bool) {
@@ -133,9 +135,9 @@ func (c *CookieStorageClient) KeyFromCookieRecord(cookieRecord *CookieRecord) st
 }
 
 func (c *CookieStorageClient) IsActive() bool {
-	c.mx.Lock()
+	c.mx.RLock()
 	result := c.client != nil && c.enabled
-	c.mx.Unlock()
+	c.mx.RUnlock()
 
 	return result
 }
@@ -146,7 +148,9 @@ func (c *CookieStorageClient) Start() {
 	go func() {
 		for {
 			if c.enabled {
-				_, err := c.client.Ping(context.Background()).Result()
+				ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+				_, err := c.client.Ping(ctx).Result()
+				cancel()
 				c.mx.Lock()
 				c.connected = err == nil
 				c.mx.Unlock()
@@ -163,7 +167,9 @@ func (c *CookieStorageClient) Store(cookieRecord *CookieRecord) {
 	}
 
 	data, _ := json.Marshal(cookieRecord)
-	_, err := c.client.SetEX(context.Background(), c.KeyFromCookieRecord(cookieRecord), data, cookieStorageDuration).Result()
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+	defer cancel()
+	_, err := c.client.SetEX(ctx, c.KeyFromCookieRecord(cookieRecord), data, cookieStorageDuration).Result()
 	if err != nil {
 		log.Println("CookieStorageClient.Store", cookieRecord, err.Error())
 	}
@@ -172,7 +178,9 @@ func (c *CookieStorageClient) Store(cookieRecord *CookieRecord) {
 func (c *CookieStorageClient) Get(sid string) *CookieRecord {
 	var cookieRecord *CookieRecord
 
-	data, _ := c.client.Get(context.Background(), c.Key(sid)).Result()
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+	defer cancel()
+	data, _ := c.client.Get(ctx, c.Key(sid)).Result()
 	if data != "" {
 		err := json.Unmarshal([]byte(data), &cookieRecord)
 		if err != nil {
@@ -185,21 +193,29 @@ func (c *CookieStorageClient) Get(sid string) *CookieRecord {
 }
 
 func (c *CookieStorageClient) Delete(sid string) {
-	_, _ = c.client.Del(context.Background(), c.Key(sid)).Result()
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+	defer cancel()
+	_, _ = c.client.Del(ctx, c.Key(sid)).Result()
 }
 
 func init() {
 	cookieAccessJournal = &CookieAccessJournal{
 		records: make(map[string]time.Time),
-		mx:      sync.Mutex{},
+		mx:      sync.RWMutex{},
 	}
 
 	cookieStorage = &CookieStorage{
 		storage: make(map[string]*CookieRecord),
-		mx:      sync.Mutex{},
+		mx:      sync.RWMutex{},
 	}
 
 	cookieAccessJournal.Start(cookieStorage)
+
+	// Calculate optimal pool size: at least 10, or 4x CPU cores
+	poolSize := runtime.NumCPU() * 4
+	if poolSize < 10 {
+		poolSize = 10
+	}
 
 	cookieStorageClient = &CookieStorageClient{
 		client: redis.NewClient(
@@ -207,44 +223,48 @@ func init() {
 				Addr:        "redis:6379",
 				Password:    "",
 				DB:          0,
-				PoolSize:    runtime.NumCPU() - runtime.NumCPU()%3,
+				PoolSize:    poolSize,
 				PoolTimeout: time.Second * 10,
 			},
 		),
 		enabled: true,
-		mx:      sync.Mutex{},
+		mx:      sync.RWMutex{},
 	}
 
 	cookieStorageClient.Start()
 }
 
 func GetCookieRecordBySid(sid string) *CookieRecord {
+	now := time.Now()
+
 	// get from memory storage
 	cookieRecord := cookieStorage.Get(sid)
 	if cookieRecord != nil {
-		if !cookieRecord.Expires.Before(time.Now()) {
+		if !cookieRecord.Expires.Before(now) {
+			// Only use goroutine for journal access update (non-critical path)
 			go cookieAccessJournal.Accessed(sid)
 			return cookieRecord
 		}
-		go cookieStorage.Delete(sid)
-		go cookieAccessJournal.Delete(sid)
+		// Expired - delete synchronously (fast operations)
+		cookieStorage.Delete(sid)
+		cookieAccessJournal.Delete(sid)
 		if cookieStorageClient.IsActive() {
-			go cookieStorageClient.Delete(sid)
+			go cookieStorageClient.Delete(sid) // Redis delete can be async
 		}
+		return nil
 	}
 
-	// if it was not in memory storage it shall be nil
-	if cookieRecord == nil {
-		// trying to get from external storage
-		if cookieStorageClient.IsActive() {
-			cookieRecord = cookieStorageClient.Get(sid)
-			if cookieRecord != nil {
-				if !cookieRecord.Expires.Before(time.Now()) {
-					go cookieStorage.Store(cookieRecord) // storing to memory storage
-					return cookieRecord
-				}
-				go cookieStorageClient.Delete(sid)
+	// Try external storage (Redis)
+	if cookieStorageClient.IsActive() {
+		cookieRecord = cookieStorageClient.Get(sid)
+		if cookieRecord != nil {
+			if !cookieRecord.Expires.Before(now) {
+				// Valid cookie from Redis - store in memory cache
+				cookieStorage.Store(cookieRecord)
+				return cookieRecord
 			}
+			// Expired - delete from Redis
+			go cookieStorageClient.Delete(sid)
 		}
 	}
 

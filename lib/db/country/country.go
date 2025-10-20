@@ -15,6 +15,7 @@ import (
 
 var ipToCountryStorageDuration = time.Hour * 24
 var ipToCountryStorageShortDuration = time.Hour
+var redisTimeout = time.Second * 5
 
 var ipToCountryStorage *IpToCountryStorage
 var ipToCountryStorageClient *IpToCountryStorageClient
@@ -32,13 +33,13 @@ func (ipc *IpToCountry) MarshalBinary() ([]byte, error) {
 
 type IpToCountryStorage struct {
 	storage map[string]IpToCountry
-	mx      sync.Mutex
+	mx      sync.RWMutex
 }
 
 func (s *IpToCountryStorage) Get(key string) (IpToCountry, bool) {
-	s.mx.Lock()
+	s.mx.RLock()
 	result, exists := s.storage[key]
-	s.mx.Unlock()
+	s.mx.RUnlock()
 
 	return result, exists
 }
@@ -53,11 +54,13 @@ type IpToCountryStorageClient struct {
 	client    *redis.Client
 	enabled   bool
 	connected bool
-	mx        sync.Mutex
+	mx        sync.RWMutex
 }
 
 func EnableRedisClient(enable bool) {
+	ipToCountryStorageClient.mx.Lock()
 	ipToCountryStorageClient.enabled = enable
+	ipToCountryStorageClient.mx.Unlock()
 }
 
 func (c *IpToCountryStorageClient) StorageKey() string {
@@ -73,7 +76,10 @@ func (c *IpToCountryStorageClient) KeyFromIpToCountry(ipToCountry IpToCountry) s
 }
 
 func (c *IpToCountryStorageClient) IsActive() bool {
-	return c.enabled && c.client != nil && c.connected
+	c.mx.RLock()
+	result := c.enabled && c.client != nil && c.connected
+	c.mx.RUnlock()
+	return result
 }
 
 func (c *IpToCountryStorageClient) Start() {
@@ -82,7 +88,9 @@ func (c *IpToCountryStorageClient) Start() {
 	go func() {
 		for {
 			if c.enabled {
-				_, err := c.client.Ping(context.Background()).Result()
+				ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+				_, err := c.client.Ping(ctx).Result()
+				cancel()
 				c.mx.Lock()
 				c.connected = err == nil
 				c.mx.Unlock()
@@ -95,7 +103,9 @@ func (c *IpToCountryStorageClient) Start() {
 
 func (c *IpToCountryStorageClient) Store(ipToCountry IpToCountry) {
 	data, _ := json.Marshal(ipToCountry)
-	_, err := c.client.HSet(context.Background(), c.StorageKey(), c.KeyFromIpToCountry(ipToCountry), data).Result()
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+	defer cancel()
+	_, err := c.client.HSet(ctx, c.StorageKey(), c.KeyFromIpToCountry(ipToCountry), data).Result()
 	if err != nil {
 		log.Println("IpToCountryStorageClient.Store", ipToCountry, err.Error())
 	}
@@ -104,7 +114,9 @@ func (c *IpToCountryStorageClient) Store(ipToCountry IpToCountry) {
 func (c *IpToCountryStorageClient) Get(ip string) (IpToCountry, bool) {
 	var ipToCountry IpToCountry
 
-	data, _ := c.client.HGet(context.Background(), c.StorageKey(), c.Key(ip)).Result()
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+	defer cancel()
+	data, _ := c.client.HGet(ctx, c.StorageKey(), c.Key(ip)).Result()
 	if data != "" {
 		err := json.Unmarshal([]byte(data), &ipToCountry)
 		if err != nil {
@@ -120,8 +132,14 @@ func (c *IpToCountryStorageClient) Get(ip string) (IpToCountry, bool) {
 
 func init() {
 	ipToCountryStorage = &IpToCountryStorage{
-		storage: make(map[string]IpToCountry, 0),
-		mx:      sync.Mutex{},
+		storage: make(map[string]IpToCountry),
+		mx:      sync.RWMutex{},
+	}
+
+	// Calculate optimal pool size: at least 10, or 4x CPU cores
+	poolSize := runtime.NumCPU() * 4
+	if poolSize < 10 {
+		poolSize = 10
 	}
 
 	ipToCountryStorageClient = &IpToCountryStorageClient{
@@ -130,22 +148,24 @@ func init() {
 				Addr:        "redis:6379",
 				Password:    "",
 				DB:          0,
-				PoolSize:    runtime.NumCPU() - runtime.NumCPU()%3,
+				PoolSize:    poolSize,
 				PoolTimeout: time.Second * 10,
 			},
 		),
 		enabled: true,
-		mx:      sync.Mutex{},
+		mx:      sync.RWMutex{},
 	}
 
 	ipToCountryStorageClient.Start()
 }
 
 func ResolveCountryByIP(remoteAddr string) string {
+	now := time.Now()
+
 	// get from memory storage
 	ipToCountry, exists := ipToCountryStorage.Get(remoteAddr)
 	if exists {
-		if !ipToCountry.Expires.Before(time.Now()) {
+		if !ipToCountry.Expires.Before(now) {
 			return ipToCountry.Country
 		}
 	}
@@ -154,7 +174,7 @@ func ResolveCountryByIP(remoteAddr string) string {
 	if ipToCountryStorageClient.IsActive() {
 		ipToCountry, exists = ipToCountryStorageClient.Get(remoteAddr)
 		if exists {
-			if !ipToCountry.Expires.Before(time.Now()) {
+			if !ipToCountry.Expires.Before(now) {
 				ipToCountryStorage.Store(ipToCountry) // storing to memory storage
 				return ipToCountry.Country
 			}
@@ -164,8 +184,8 @@ func ResolveCountryByIP(remoteAddr string) string {
 	// default information with short lifetime
 	// to not request external IP service too often
 	ipToCountry = IpToCountry{
-		Created: time.Now(),
-		Expires: time.Now().Add(ipToCountryStorageShortDuration),
+		Created: now,
+		Expires: now.Add(ipToCountryStorageShortDuration),
 		Country: "",
 		IP:      remoteAddr,
 	}
@@ -174,7 +194,7 @@ func ResolveCountryByIP(remoteAddr string) string {
 	response, found := utils.ResolveUsingMaxMindAPI(remoteAddr)
 	if found {
 		// prolonging lifetime of IP information
-		ipToCountry.Expires = time.Now().Add(ipToCountryStorageDuration)
+		ipToCountry.Expires = now.Add(ipToCountryStorageDuration)
 		ipToCountry.Country = response.Country
 	}
 

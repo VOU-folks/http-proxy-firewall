@@ -16,39 +16,70 @@ import (
 )
 
 var whitelistNetworks []*net.IPNet
+var ipWhitelist []string
+var allowedCountries []string
+var blacklistedCountries []string
 
 func init() {
-	var network *net.IPNet
-	whitelistNetworks = make([]*net.IPNet, 0, 10)
-
-	_, network, _ = net.ParseCIDR("127.0.0.1/8")
-	whitelistNetworks = append(whitelistNetworks, network)
-
-	envWhitelistNets := utils.GetEnv("IP_FILTER_WHITELIST_NETWORKS")
-	whitelistNets := strings.Split(envWhitelistNets, ",")
-	for _, elem := range whitelistNets {
-		_, network, _ = net.ParseCIDR(elem)
+	// Initialize localhost whitelist
+	_, network, err := net.ParseCIDR("127.0.0.1/8")
+	if err != nil {
+		log.Println("Failed to parse localhost CIDR:", err)
+	} else {
 		whitelistNetworks = append(whitelistNetworks, network)
 	}
 
-	envWhitelist := utils.GetEnv("IP_FILTER_WHITELIST")
-	whitelist := strings.Split(envWhitelist, ",")
-	for _, elem := range whitelist {
-		ipWhitelist = append(ipWhitelist, elem)
+	// Load whitelisted networks from environment
+	envWhitelistNets := strings.TrimSpace(utils.GetEnv("IP_FILTER_WHITELIST_NETWORKS"))
+	if envWhitelistNets != "" {
+		whitelistNets := strings.Split(envWhitelistNets, ",")
+		for _, elem := range whitelistNets {
+			trimmed := strings.TrimSpace(elem)
+			if trimmed == "" {
+				continue
+			}
+			_, network, err := net.ParseCIDR(trimmed)
+			if err != nil {
+				log.Println("Failed to parse network CIDR:", trimmed, err)
+				continue
+			}
+			whitelistNetworks = append(whitelistNetworks, network)
+		}
 	}
 
-	envCountries := utils.GetEnv("IP_FILTER_ALLOWED_COUNTRIES")
-	countries := strings.Split(envCountries, ",")
-	for _, elem := range countries {
-		allowedCountries = append(allowedCountries, strings.Trim(elem, " "))
+	// Load whitelisted IPs from environment
+	envWhitelist := strings.TrimSpace(utils.GetEnv("IP_FILTER_WHITELIST"))
+	if envWhitelist != "" {
+		whitelist := strings.Split(envWhitelist, ",")
+		for _, elem := range whitelist {
+			trimmed := strings.TrimSpace(elem)
+			if trimmed != "" {
+				ipWhitelist = append(ipWhitelist, trimmed)
+			}
+		}
 	}
 
-	envBlacklistedCountries := utils.GetEnv("IP_FILTER_BLACKLISTED_COUNTRIES")
-	blacklistedCountriesSlice := strings.Split(envBlacklistedCountries, ",")
-	for _, elem := range blacklistedCountriesSlice {
-		trimmed := strings.Trim(elem, " ")
-		if trimmed != "" {
-			blacklistedCountries = append(blacklistedCountries, trimmed)
+	// Load allowed countries from environment
+	envCountries := strings.TrimSpace(utils.GetEnv("IP_FILTER_ALLOWED_COUNTRIES"))
+	if envCountries != "" {
+		countries := strings.Split(envCountries, ",")
+		for _, elem := range countries {
+			trimmed := strings.TrimSpace(elem)
+			if trimmed != "" {
+				allowedCountries = append(allowedCountries, trimmed)
+			}
+		}
+	}
+
+	// Load blacklisted countries from environment
+	envBlacklistedCountries := strings.TrimSpace(utils.GetEnv("IP_FILTER_BLACKLISTED_COUNTRIES"))
+	if envBlacklistedCountries != "" {
+		blacklistedCountriesSlice := strings.Split(envBlacklistedCountries, ",")
+		for _, elem := range blacklistedCountriesSlice {
+			trimmed := strings.TrimSpace(elem)
+			if trimmed != "" {
+				blacklistedCountries = append(blacklistedCountries, trimmed)
+			}
 		}
 	}
 
@@ -59,8 +90,6 @@ func init() {
 
 type IpFilter struct {
 }
-
-var ipWhitelist []string
 
 func isIpInWhitelistedNetwork(ip net.IP) bool {
 	for _, network := range whitelistNetworks {
@@ -81,9 +110,6 @@ func isIpWhitelisted(ipAddress string) bool {
 	return false
 }
 
-var allowedCountries []string
-var blacklistedCountries []string
-
 func isCountryAllowed(country string) bool {
 	return slices.Contains(allowedCountries, country)
 }
@@ -95,30 +121,32 @@ func isCountryBlacklisted(country string) bool {
 func (f *IpFilter) Handler(c *fiber.Ctx, remoteIP string, hostname string) FilterResult {
 	ip := net.ParseIP(remoteIP)
 
-	breakLoop := isIpInWhitelistedNetwork(ip) ||
-		isIpWhitelisted(remoteIP) || google.IsGoogleBot(ip)
-	if breakLoop {
+	// Check whitelists first (fastest path)
+	if isIpInWhitelistedNetwork(ip) || isIpWhitelisted(remoteIP) || google.IsGoogleBot(ip) {
 		return BreakLoopResult
 	}
 
-	resolvedCountry := country.ResolveCountryByIP(remoteIP)
+	// Resolve country if we have filtering rules
+	if len(allowedCountries) > 0 || len(blacklistedCountries) > 0 {
+		resolvedCountry := country.ResolveCountryByIP(remoteIP)
 
-	if resolvedCountry != "" {
-		if isCountryAllowed(resolvedCountry) {
-			return BreakLoopResult
+		if resolvedCountry != "" {
+			// Whitelist has priority
+			if len(allowedCountries) > 0 && isCountryAllowed(resolvedCountry) {
+				return BreakLoopResult
+			}
+
+			// Check blacklist
+			if len(blacklistedCountries) > 0 && isCountryBlacklisted(resolvedCountry) {
+				return FilterResult{
+					Error:        nil,
+					Passed:       false,
+					BreakLoop:    false,
+					AbortHandler: methods.ForbiddenCountry(resolvedCountry, remoteIP),
+				}
+			}
 		}
-
-		// Check if country is blacklisted
-		if isCountryBlacklisted(resolvedCountry) {
-			result := AbortRequestResult
-			result.AbortHandler = methods.ForbiddenCountry(resolvedCountry, remoteIP)
-			return result
-		}
-
-		return PassToNext
 	}
 
-	// cannot detect country
-	// pass to next filter
 	return PassToNext
 }

@@ -1,8 +1,8 @@
 package rules
 
 import (
-	"mime"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -10,32 +10,25 @@ import (
 	. "http-proxy-firewall/lib/firewall/interfaces"
 )
 
-type SkipStaticFiles struct {
+// staticFileExtensions contains common static file extensions that should skip firewall checks
+var staticFileExtensions = []string{
+	// Images
+	".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg",
+	".ico", ".bmp", ".tiff", ".avif",
+	// Stylesheets
+	".css",
+	// Scripts
+	".js",
+	// Documents
+	".htm", ".html", ".txt",
 }
 
-func isImage(mime string) bool {
-	return strings.Contains(mime, "image/")
-}
-
-func isCSS(ext string) bool {
-	return ext == ".css"
-}
-
-func isJS(ext string) bool {
-	return ext == ".js"
-}
-
-func isPlainTextFile(ext string) bool {
-	return ext == ".htm" || ext == ".html" || ext == ".txt"
-}
+type SkipStaticFiles struct{}
 
 func (ssf *SkipStaticFiles) Handler(c *fiber.Ctx, remoteIP string, hostname string) FilterResult {
 	ext := strings.ToLower(filepath.Ext(c.Path()))
-	mimeType := mime.TypeByExtension(ext)
 
-	if isImage(mimeType) ||
-		isCSS(ext) || isJS(ext) ||
-		isPlainTextFile(ext) {
+	if slices.Contains(staticFileExtensions, ext) {
 		return BreakLoopResult
 	}
 

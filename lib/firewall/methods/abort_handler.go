@@ -1,11 +1,9 @@
 package methods
 
 import (
-	"github.com/gin-gonic/gin"
-	"net/http"
+	"github.com/gofiber/fiber/v2"
 )
 
-func Abort(c *gin.Context) {
-	c.Writer.WriteHeader(http.StatusNoContent)
-	c.Abort()
+func Abort(c *fiber.Ctx) error {
+	return c.SendStatus(fiber.StatusNoContent)
 }

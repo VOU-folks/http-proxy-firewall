@@ -5,7 +5,8 @@ import (
 )
 
 func ForbiddenCountry(country string, ip string) func(ctx *fiber.Ctx) error {
+	// Don't leak country/IP information to client for security
 	return func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusForbidden).SendString("Forbidden country: " + country + " [ip: " + ip + "]")
+		return c.SendStatus(fiber.StatusForbidden)
 	}
 }

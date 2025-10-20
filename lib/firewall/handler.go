@@ -18,11 +18,12 @@ import (
 var filters []FilterInterface
 
 func init() {
-	filters = make([]FilterInterface, 0)
-	filters = append(filters, &rules.SkipStaticFiles{})
-	filters = append(filters, &rules.IpFilter{})
-	filters = append(filters, &rules.DosDetector{})
-	filters = append(filters, &rules.CookieCheckpoint{})
+	filters = []FilterInterface{
+		&rules.SkipStaticFiles{},
+		&rules.IpFilter{},
+		&rules.DosDetector{},
+		&rules.CookieCheckpoint{},
+	}
 }
 
 func EnableRedis(enable bool) {
@@ -31,11 +32,9 @@ func EnableRedis(enable bool) {
 	googleDb.EnableRedisClient(enable)
 }
 
-func Handler(c *fiber.Ctx) error {
+// executeFilters runs a slice of filters and handles the results
+func executeFilters(c *fiber.Ctx, filters []FilterInterface, remoteIP, hostname string) error {
 	var result FilterResult
-
-	remoteIP := utils.ResolveRemoteIP(c)
-	hostname := utils.ResolveHostname(c)
 
 	for _, filter := range filters {
 		result = filter.Handler(c, remoteIP, hostname)
@@ -60,6 +59,13 @@ func Handler(c *fiber.Ctx) error {
 	}
 
 	return c.Next()
+}
+
+func Handler(c *fiber.Ctx) error {
+	remoteIP := utils.ResolveRemoteIP(c)
+	hostname := utils.ResolveHostname(c)
+
+	return executeFilters(c, filters, remoteIP, hostname)
 }
 
 var botUserAgents []string
@@ -114,57 +120,35 @@ var botUserAgentsRaw = []string{
 var botFilters []FilterInterface
 
 func init() {
-	botFilters = make([]FilterInterface, 0)
-	botFilters = append(botFilters, &custom.BlockSensitiveUrls{})
+	botFilters = []FilterInterface{
+		&custom.BlockSensitiveUrls{},
+	}
 
-	botUserAgents = make([]string, 0)
-	for _, ua := range botUserAgentsRaw {
-		botUserAgents = append(botUserAgents, strings.ToLower(ua))
+	// Pre-allocate with exact capacity and convert to lowercase
+	botUserAgents = make([]string, len(botUserAgentsRaw))
+	for i, ua := range botUserAgentsRaw {
+		botUserAgents[i] = strings.ToLower(ua)
 	}
 }
 
+// isBot checks if the user agent matches known bot patterns
+func isBot(userAgent string) bool {
+	for _, botUA := range botUserAgents {
+		if strings.Contains(userAgent, botUA) {
+			return true
+		}
+	}
+	return false
+}
+
 func BotHandler(c *fiber.Ctx) error {
-	var result FilterResult
+	// Only process bot filters if this is a bot
+	if !isBot(strings.ToLower(c.Get("User-Agent"))) {
+		return c.Next()
+	}
 
 	remoteIP := utils.ResolveRemoteIP(c)
 	hostname := utils.ResolveHostname(c)
 
-	userAgent := strings.ToLower(c.Get("User-Agent"))
-
-	isBot := false
-
-	for _, botUA := range botUserAgents {
-		if strings.Contains(userAgent, botUA) {
-			isBot = true
-			break
-		}
-	}
-
-	if isBot {
-		for _, filter := range botFilters {
-			result = filter.Handler(c, remoteIP, hostname)
-
-			if result.Passed {
-				if result.BreakLoop { // stop filtering
-					return c.Next()
-				}
-				continue // passed current filter, skip to next
-			}
-
-			// not passed current filter
-			if result.Error != nil {
-				log.Println("Error in firewall", result.Error.Error())
-			}
-
-			//log.Println("Bot blocked", c.Hostname(), c.OriginalURL())
-
-			if result.AbortHandler != nil {
-				return result.AbortHandler(c)
-			}
-
-			return methods.Forbidden(c)
-		}
-	}
-
-	return c.Next()
+	return executeFilters(c, botFilters, remoteIP, hostname)
 }

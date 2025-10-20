@@ -20,13 +20,12 @@ var requestCountersResetPeriod time.Duration
 
 type HostnameRequestCounters struct {
 	counters map[string]*HostnameRequestCounter
-	mx       sync.Mutex
+	mx       sync.RWMutex
 }
 
 type HostnameRequestCounter struct {
-	time    time.Time
-	penalty bool
-	counter uint64
+	createdAt time.Time
+	counter   atomic.Uint64
 }
 
 var hostnamePenalties *HostnamePenalties
@@ -34,87 +33,112 @@ var hostnamePenaltyLifetime time.Duration
 
 type HostnamePenalties struct {
 	penalties map[string]*HostnamePenalty
-	mx        sync.Mutex
+	mx        sync.RWMutex
 }
 
 type HostnamePenalty struct {
 	expires time.Time
-	penalty bool
 }
 
-func getCounterForHostname(hostname string) uint64 {
-	requestCounters.mx.Lock()
-	defer requestCounters.mx.Unlock()
-
+func getCounterForHostname(hostname string, now time.Time) uint64 {
+	// Try read lock first (fast path for existing counters)
+	requestCounters.mx.RLock()
 	requestCounter := requestCounters.counters[hostname]
-	if requestCounter == nil {
-		requestCounters.counters[hostname] = &HostnameRequestCounter{
-			time:    time.Now(),
-			counter: 0,
-		}
-		requestCounter = requestCounters.counters[hostname]
-	}
-	atomic.AddUint64(&requestCounter.counter, uint64(1))
+	requestCounters.mx.RUnlock()
 
-	return requestCounter.counter
+	if requestCounter != nil {
+		return requestCounter.counter.Add(1)
+	}
+
+	// Counter doesn't exist, need write lock
+	requestCounters.mx.Lock()
+	// Double-check after acquiring write lock
+	requestCounter = requestCounters.counters[hostname]
+	if requestCounter == nil {
+		requestCounter = &HostnameRequestCounter{
+			createdAt: now,
+		}
+		requestCounters.counters[hostname] = requestCounter
+	}
+	requestCounters.mx.Unlock()
+
+	return requestCounter.counter.Add(1)
 }
 
-func setPenaltyForHostname(hostname string) {
+func setPenaltyForHostname(hostname string, now time.Time) {
 	hostnamePenalties.mx.Lock()
 	defer hostnamePenalties.mx.Unlock()
 
 	hostnamePenalties.penalties[hostname] = &HostnamePenalty{
-		expires: time.Now().Add(hostnamePenaltyLifetime),
-		penalty: true,
+		expires: now.Add(hostnamePenaltyLifetime),
 	}
 }
 
-func hostnameUnderPenalty(hostname string) bool {
-	hostnamePenalties.mx.Lock()
-	defer hostnamePenalties.mx.Unlock()
+func hostnameUnderPenalty(hostname string, now time.Time) bool {
+	hostnamePenalties.mx.RLock()
+	defer hostnamePenalties.mx.RUnlock()
 
 	hostnamePenalty := hostnamePenalties.penalties[hostname]
-	return hostnamePenalty != nil &&
-		hostnamePenalty.penalty == true &&
-		hostnamePenalty.expires.After(time.Now())
+	return hostnamePenalty != nil && hostnamePenalty.expires.After(now)
 }
 
 func init() {
 	threshold, err := strconv.ParseUint(utils.GetEnv("DOS_DETECTOR_HOSTNAME_REQUEST_THRESHOLD"), 10, 64)
-	if err != nil || !(threshold > 0) {
+	if err != nil || threshold == 0 {
 		threshold = 100
 	}
 	requestThreshold = threshold
-	requestCountersResetPeriod, _ = time.ParseDuration(strconv.FormatUint(requestCountersSamplingSeconds, 10) + "s")
+	requestCountersResetPeriod = time.Duration(requestCountersSamplingSeconds) * time.Second
 
 	lifetime := utils.GetEnv("DOS_DETECTOR_HOSTNAME_PENALTY_LIFETIME")
 	if lifetime == "" {
 		lifetime = "10m"
 	}
 	hostnamePenaltyLifetime, err = time.ParseDuration(lifetime)
+	if err != nil {
+		log.Println("Failed to parse DOS_DETECTOR_HOSTNAME_PENALTY_LIFETIME, using default 10m:", err)
+		hostnamePenaltyLifetime = 10 * time.Minute
+	}
 
 	requestCounters = &HostnameRequestCounters{
 		counters: make(map[string]*HostnameRequestCounter),
-		mx:       sync.Mutex{},
+		mx:       sync.RWMutex{},
 	}
 
 	hostnamePenalties = &HostnamePenalties{
 		penalties: make(map[string]*HostnamePenalty),
-		mx:        sync.Mutex{},
+		mx:        sync.RWMutex{},
 	}
 
+	// Reset counters and cleanup old entries periodically
 	go func() {
-		for {
+		ticker := time.NewTicker(requestCountersResetPeriod)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			now := time.Now()
+
+			// Reset counters atomically
 			requestCounters.mx.Lock()
-			counters := requestCounters.counters
+			for hostname, requestCounter := range requestCounters.counters {
+				// Remove stale counters (older than 2x the reset period)
+				if now.Sub(requestCounter.createdAt) > 2*requestCountersResetPeriod {
+					delete(requestCounters.counters, hostname)
+				} else {
+					// Reset counter using atomic operation
+					requestCounter.counter.Store(0)
+				}
+			}
 			requestCounters.mx.Unlock()
 
-			for _, requestCounter := range counters {
-				requestCounter.time = time.Now()
-				requestCounter.counter = 0
+			// Cleanup expired penalties
+			hostnamePenalties.mx.Lock()
+			for hostname, penalty := range hostnamePenalties.penalties {
+				if penalty.expires.Before(now) {
+					delete(hostnamePenalties.penalties, hostname)
+				}
 			}
-
-			time.Sleep(requestCountersResetPeriod)
+			hostnamePenalties.mx.Unlock()
 		}
 	}()
 }
@@ -122,23 +146,28 @@ func init() {
 type DosDetector struct {
 }
 
-func isAboveThreshold(hostname string) (bool, uint64, uint64) {
-	counter := getCounterForHostname(hostname)
+func isAboveThreshold(hostname string, now time.Time) (bool, uint64, uint64) {
+	counter := getCounterForHostname(hostname, now)
 	avgPerSecond := counter / requestCountersSamplingSeconds
 	return avgPerSecond > requestThreshold, counter, avgPerSecond
 }
 
 func (f *DosDetector) Handler(c *fiber.Ctx, remoteIP string, hostname string) FilterResult {
-	if hostnameUnderPenalty(hostname) {
+	now := time.Now()
+
+	// Check if hostname is under penalty (returns true if blocked)
+	if hostnameUnderPenalty(hostname, now) {
 		return PassToNext
 	}
 
-	isAbove, counter, avgPerSecond := isAboveThreshold(hostname)
+	// Check if threshold exceeded
+	isAbove, counter, avgPerSecond := isAboveThreshold(hostname, now)
 	if !isAbove {
 		return BreakLoopResult
 	}
 
-	log.Println("isAboveThreshold", hostname, counter, avgPerSecond)
-	setPenaltyForHostname(hostname)
+	// Threshold exceeded - apply penalty
+	log.Println("DoS threshold exceeded:", hostname, "total=", counter, "avg/sec=", avgPerSecond)
+	setPenaltyForHostname(hostname, now)
 	return PassToNext
 }

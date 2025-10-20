@@ -3,7 +3,7 @@ package google
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -16,6 +16,10 @@ import (
 )
 
 var googlebotIPNetworkStorageDuration = time.Hour * 24
+var redisTimeout = time.Second * 5
+var httpClient = &http.Client{
+	Timeout: time.Second * 30,
+}
 var googlebotIPStorage *GooglebotIPStorage
 var googlebotIPStorageClient *GooglebotIPStorageClient
 
@@ -24,18 +28,20 @@ type GooglebotIPRecord = string
 type GooglebotIPStorage struct {
 	records  []GooglebotIPRecord
 	networks []net.IPNet
-	mx       sync.Mutex
+	mx       sync.RWMutex
 }
 
 type GooglebotIPStorageClient struct {
 	client    *redis.Client
 	enabled   bool
 	connected bool
-	mx        sync.Mutex
+	mx        sync.RWMutex
 }
 
 func EnableRedisClient(enable bool) {
+	googlebotIPStorageClient.mx.Lock()
 	googlebotIPStorageClient.enabled = enable
+	googlebotIPStorageClient.mx.Unlock()
 }
 
 func (c *GooglebotIPStorageClient) StorageKey() string {
@@ -43,7 +49,10 @@ func (c *GooglebotIPStorageClient) StorageKey() string {
 }
 
 func (c *GooglebotIPStorageClient) IsActive() bool {
-	return c.enabled && c.client != nil && c.connected
+	c.mx.RLock()
+	result := c.enabled && c.client != nil && c.connected
+	c.mx.RUnlock()
+	return result
 }
 
 func (c *GooglebotIPStorageClient) Start() {
@@ -52,7 +61,9 @@ func (c *GooglebotIPStorageClient) Start() {
 	go func() {
 		for {
 			if c.enabled {
-				_, err := c.client.Ping(context.Background()).Result()
+				ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+				_, err := c.client.Ping(ctx).Result()
+				cancel()
 				c.mx.Lock()
 				c.connected = err == nil
 				c.mx.Unlock()
@@ -71,7 +82,9 @@ func (c *GooglebotIPStorageClient) Store(records []GooglebotIPRecord) {
 	}
 
 	data := strings.Join(records, ", ")
-	_, err := c.client.SetEX(context.Background(), c.StorageKey(), data, googlebotIPNetworkStorageDuration).Result()
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+	defer cancel()
+	_, err := c.client.SetEX(ctx, c.StorageKey(), data, googlebotIPNetworkStorageDuration).Result()
 	if err != nil {
 		log.Println("GooglebotIPStorageClient.Store", err.Error())
 	}
@@ -80,7 +93,9 @@ func (c *GooglebotIPStorageClient) Store(records []GooglebotIPRecord) {
 func (c *GooglebotIPStorageClient) Get() []GooglebotIPRecord {
 	records := make([]GooglebotIPRecord, 0)
 
-	data, _ := c.client.Get(context.Background(), c.StorageKey()).Result()
+	ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+	defer cancel()
+	data, _ := c.client.Get(ctx, c.StorageKey()).Result()
 	if data != "" {
 		records = strings.Split(data, ", ")
 	}
@@ -92,7 +107,13 @@ func init() {
 	googlebotIPStorage = &GooglebotIPStorage{
 		records:  make([]GooglebotIPRecord, 0),
 		networks: make([]net.IPNet, 0),
-		mx:       sync.Mutex{},
+		mx:       sync.RWMutex{},
+	}
+
+	// Calculate optimal pool size: at least 10, or 4x CPU cores
+	poolSize := runtime.NumCPU() * 4
+	if poolSize < 10 {
+		poolSize = 10
 	}
 
 	googlebotIPStorageClient = &GooglebotIPStorageClient{
@@ -101,12 +122,12 @@ func init() {
 				Addr:        "redis:6379",
 				Password:    "",
 				DB:          0,
-				PoolSize:    runtime.NumCPU() - runtime.NumCPU()%3,
+				PoolSize:    poolSize,
 				PoolTimeout: time.Second * 10,
 			},
 		),
 		enabled: true,
-		mx:      sync.Mutex{},
+		mx:      sync.RWMutex{},
 	}
 
 	googlebotIPStorageClient.Start()
@@ -128,49 +149,70 @@ func restoreFromStorageServer() {
 		return
 	}
 
-	if len(googlebotIPStorage.records) > 0 {
+	// Check if records already exist (with lock)
+	googlebotIPStorage.mx.RLock()
+	hasRecords := len(googlebotIPStorage.records) > 0
+	googlebotIPStorage.mx.RUnlock()
+
+	if hasRecords {
 		return
 	}
 
-	var err error
+	// Get records from Redis
+	records := googlebotIPStorageClient.Get()
+	if len(records) == 0 {
+		return
+	}
 
-	googlebotIPStorage.records = googlebotIPStorageClient.Get()
-
-	networks := make([]net.IPNet, 0)
+	// Parse networks
+	networks := make([]net.IPNet, 0, len(records))
 	var network *net.IPNet
-	for _, record := range googlebotIPStorage.records {
+	var err error
+	for _, record := range records {
 		_, network, err = net.ParseCIDR(record)
 
 		if err != nil {
-			log.Println("Cidr:", network, "parse error:", err.Error())
+			log.Println("Cidr:", record, "parse error:", err.Error())
 			continue
 		}
 
 		networks = append(networks, *network)
 	}
 
+	// Store atomically
+	googlebotIPStorage.mx.Lock()
+	googlebotIPStorage.records = records
 	googlebotIPStorage.networks = networks
+	googlebotIPStorage.mx.Unlock()
 }
 
 func getGoogleBotIPs() {
-	var records = make([]GooglebotIPRecord, 0)
-	var networks = make([]net.IPNet, 0)
-	var googleIPRanges IPRanges
-
 	for {
-		resp, err := http.Get("https://developers.google.com/static/search/apis/ipranges/googlebot.json")
+		var records = make([]GooglebotIPRecord, 0, 50)
+		var networks = make([]net.IPNet, 0, 50)
+		var googleIPRanges IPRanges
+
+		resp, err := httpClient.Get("https://developers.google.com/static/search/apis/ipranges/googlebot.json")
 		if err != nil {
 			log.Printf("Request Failed: %s", err)
+			time.Sleep(time.Minute * 5) // Retry after 5 minutes on error
 			continue
 		}
 
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close() // Always close response body
 		if err != nil {
 			log.Printf("Failed to read IP ranges: %s", err)
+			time.Sleep(time.Minute * 5) // Retry after 5 minutes on error
 			continue
 		}
 
-		_ = json.Unmarshal(body, &googleIPRanges)
+		err = json.Unmarshal(body, &googleIPRanges)
+		if err != nil {
+			log.Printf("Failed to unmarshal IP ranges: %s", err)
+			time.Sleep(time.Minute * 5) // Retry after 5 minutes on error
+			continue
+		}
 
 		for _, prefix := range googleIPRanges.Prefixes {
 			var network *net.IPNet
@@ -180,6 +222,8 @@ func getGoogleBotIPs() {
 				_, network, err = net.ParseCIDR(prefix.IPv4Prefix)
 				if err != nil {
 					log.Println("Cidr:", prefix.IPv4Prefix, "parse error:", err.Error())
+				} else if network != nil {
+					networks = append(networks, *network)
 				}
 			}
 			if prefix.IPv6Prefix != "" {
@@ -187,11 +231,9 @@ func getGoogleBotIPs() {
 				_, network, err = net.ParseCIDR(prefix.IPv6Prefix)
 				if err != nil {
 					log.Println("Cidr:", prefix.IPv6Prefix, "parse error:", err.Error())
+				} else if network != nil {
+					networks = append(networks, *network)
 				}
-			}
-
-			if network != nil {
-				networks = append(networks, *network)
 			}
 		}
 
@@ -209,19 +251,15 @@ func getGoogleBotIPs() {
 }
 
 func IsGoogleBot(ip net.IP) bool {
-	result := false
+	googlebotIPStorage.mx.RLock()
+	defer googlebotIPStorage.mx.RUnlock()
 
-	googlebotIPStorage.mx.Lock()
-	networks := googlebotIPStorage.networks
-	googlebotIPStorage.mx.Unlock()
-
-	for _, network := range networks {
+	for _, network := range googlebotIPStorage.networks {
 		if network.Contains(ip) {
 			log.Println("IP: " + ip.String() + " is GoogleBot")
-			result = true
-			break
+			return true
 		}
 	}
 
-	return result
+	return false
 }
