@@ -8,13 +8,14 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
+var errStopWalk = fmt.Errorf("stop walk")
+
 func FindMMDBAndMove(searchInPath string, moveToDir string, destFileName string) error {
-	done := false
-	_ = filepath.Walk(
+	err := filepath.Walk(
 		searchInPath,
 		func(path string, info os.FileInfo, err error) error {
-			if done {
-				return nil
+			if err != nil {
+				return err
 			}
 
 			if path == searchInPath || info.Name() == destFileName {
@@ -24,15 +25,16 @@ func FindMMDBAndMove(searchInPath string, moveToDir string, destFileName string)
 			if filepath.Ext(info.Name()) == ".mmdb" {
 				db, err := maxminddb.Open(path)
 				if err != nil {
-					return fmt.Errorf("Error opening DB: %s", err.Error())
+					return fmt.Errorf("error opening DB: %w", err)
 				}
+				defer db.Close()
 
 				if db.Metadata.RecordSize > 0 {
-					err = os.Rename(path, moveToDir+"/"+destFileName)
-					if err == nil {
-						done = true
+					destPath := filepath.Join(moveToDir, destFileName)
+					if err := os.Rename(path, destPath); err != nil {
+						return fmt.Errorf("error moving file: %w", err)
 					}
-					return nil
+					return errStopWalk
 				}
 			}
 
@@ -40,5 +42,9 @@ func FindMMDBAndMove(searchInPath string, moveToDir string, destFileName string)
 		},
 	)
 
-	return nil
+	if err == errStopWalk {
+		return nil
+	}
+
+	return err
 }

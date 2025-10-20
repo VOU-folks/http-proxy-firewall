@@ -3,6 +3,7 @@ package rules
 import (
 	"log"
 	"net"
+	"slices"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -12,7 +13,6 @@ import (
 	. "http-proxy-firewall/lib/firewall/interfaces"
 	"http-proxy-firewall/lib/firewall/methods"
 	"http-proxy-firewall/lib/utils"
-	"http-proxy-firewall/lib/utils/slices"
 )
 
 var whitelistNetworks []*net.IPNet

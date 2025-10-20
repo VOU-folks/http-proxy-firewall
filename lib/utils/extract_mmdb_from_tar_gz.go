@@ -12,8 +12,9 @@ import (
 func ExtractMMDBFromTarGz(gzipStream io.Reader, destDir string) error {
 	uncompressedStream, err := gzip.NewReader(gzipStream)
 	if err != nil {
-		return fmt.Errorf("ExtractTarGz: NewReader failed")
+		return fmt.Errorf("ExtractTarGz: NewReader failed: %w", err)
 	}
+	defer uncompressedStream.Close()
 
 	tarReader := tar.NewReader(uncompressedStream)
 
@@ -25,23 +26,23 @@ func ExtractMMDBFromTarGz(gzipStream io.Reader, destDir string) error {
 		}
 
 		if err != nil {
-			return fmt.Errorf("ExtractTarGz: Next() failed: %s", err.Error())
+			return fmt.Errorf("ExtractTarGz: Next() failed: %w", err)
 		}
 
-		switch header.Typeflag {
-		case tar.TypeReg:
-			if filepath.Ext(header.Name) == ".mmdb" {
-				outFile, err := os.Create(destDir + "/" + filepath.Base(header.Name))
-				if err != nil {
-					return fmt.Errorf("ExtractTarGz: Create() failed: %s", err.Error())
-				}
-				if _, err := io.Copy(outFile, tarReader); err != nil {
-					return fmt.Errorf("ExtractTarGz: Copy() failed: %s", err.Error())
-				}
+		if header.Typeflag == tar.TypeReg && filepath.Ext(header.Name) == ".mmdb" {
+			outPath := filepath.Join(destDir, filepath.Base(header.Name))
+			outFile, err := os.Create(outPath)
+			if err != nil {
+				return fmt.Errorf("ExtractTarGz: Create() failed: %w", err)
+			}
 
-				if outFile != nil {
-					_ = outFile.Close()
-				}
+			if _, err := io.Copy(outFile, tarReader); err != nil {
+				outFile.Close()
+				return fmt.Errorf("ExtractTarGz: Copy() failed: %w", err)
+			}
+
+			if err := outFile.Close(); err != nil {
+				return fmt.Errorf("ExtractTarGz: Close() failed: %w", err)
 			}
 		}
 	}

@@ -6,23 +6,28 @@ import (
 	"time"
 )
 
-func CreateHttpServer(listenAt string) *http.Server {
+const (
+	readHeaderTimeout = 10 * time.Second
+	readTimeout       = 10 * time.Minute
+	writeTimeout      = 10 * time.Minute
+	idleTimeout       = 60 * time.Second
+)
+
+func createServer(listenAt string, tlsConfig *tls.Config) *http.Server {
 	return &http.Server{
 		Addr:              listenAt,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       10 * time.Minute,
-		WriteTimeout:      10 * time.Minute,
-		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		TLSConfig:         tlsConfig,
 	}
 }
 
+func CreateHttpServer(listenAt string) *http.Server {
+	return createServer(listenAt, nil)
+}
+
 func CreateHttpsServer(listenAt string, config *tls.Config) *http.Server {
-	return &http.Server{
-		Addr:              listenAt,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       10 * time.Minute,
-		WriteTimeout:      10 * time.Minute,
-		IdleTimeout:       60 * time.Second,
-		TLSConfig:         config,
-	}
+	return createServer(listenAt, config)
 }

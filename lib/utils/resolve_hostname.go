@@ -13,13 +13,12 @@ func ResolveHostname(c *fiber.Ctx) string {
 		host = c.Hostname()
 	}
 
-	if strings.HasPrefix(host, "www.") {
-		host = strings.TrimLeft(host, "www.")
-	}
+	// Remove www. prefix
+	host = strings.TrimPrefix(host, "www.")
 
-	if strings.Contains(host, ":") {
-		splitted := strings.Split(host, ":")
-		host = splitted[0]
+	// Remove port if present
+	if idx := strings.Index(host, ":"); idx != -1 {
+		host = host[:idx]
 	}
 
 	return host

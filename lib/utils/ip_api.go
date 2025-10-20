@@ -3,7 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -30,27 +30,28 @@ type IPAPIResponse struct {
 	Query       string  `json:"query"`
 }
 
-func ResolveUsingIPAPI(ip string) *IPAPIResponse {
-	var err error
+var httpClient = &http.Client{
+	Timeout: 10 * time.Second,
+}
 
+func ResolveUsingIPAPI(ip string) *IPAPIResponse {
 	url := fmt.Sprintf("http://ip-api.com/json/%s", ip)
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
-		log.Println("ResolveUsingIPAPI", err.Error())
+		log.Printf("ResolveUsingIPAPI: %v\n", err)
 		return nil
 	}
+	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Println("ResolveUsingIPAPI", err.Error())
+		log.Printf("ResolveUsingIPAPI: %v\n", err)
 		return nil
 	}
 
 	var ipApiResponse *IPAPIResponse
-	err = json.Unmarshal(body, &ipApiResponse)
-	if err != nil {
-		log.Println("ResolveUsingIPAPI", err.Error())
+	if err = json.Unmarshal(body, &ipApiResponse); err != nil {
+		log.Printf("ResolveUsingIPAPI: %v\n", err)
 		return nil
 	}
 
@@ -68,55 +69,50 @@ func init() {
 	}()
 }
 
-func initializeDB() {
-	var err error
+var geoDBClient = &http.Client{
+	CheckRedirect: func(r *http.Request, via []*http.Request) error {
+		r.URL.Opaque = r.URL.Path
+		return nil
+	},
+	Timeout: 5 * time.Minute,
+}
 
+func initializeDB() {
 	cwd, _ := os.Getwd()
 	filesDir := cwd + "/files"
 	maxmindFileName := "geo.mmdb"
-	maxmindFile := filesDir + "/" + maxmindFileName
 
-	err = downloadGeoDB(filesDir, maxmindFileName)
-	if err != nil {
-		log.Println("Cannot download maxmind file", maxmindFile, err.Error())
+	if err := downloadGeoDB(filesDir, maxmindFileName); err != nil {
+		log.Printf("Cannot download maxmind file: %v\n", err)
 	}
 
+	var err error
 	maxMindDB, err = maxminddb.Open(filesDir + "/" + maxmindFileName)
 	if err != nil {
-		log.Println("Cannot read maxmind file", maxmindFile, err.Error())
+		log.Printf("Cannot read maxmind file: %v\n", err)
 		maxMindDB = nil
 	}
 }
 
 func downloadGeoDB(destDir string, destFileName string) error {
-	var err error
-
 	licenseKey := GetEnv("MAXMIND_LICENSE_KEY")
 	source := fmt.Sprintf(
 		"https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-Country&license_key=%s&suffix=tar.gz",
 		licenseKey,
 	)
 
-	client := http.Client{
-		CheckRedirect: func(r *http.Request, via []*http.Request) error {
-			r.URL.Opaque = r.URL.Path
-			return nil
-		},
-	}
-	resp, err := client.Get(source)
+	resp, err := geoDBClient.Get(source)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to download GeoIP database: %w", err)
 	}
 	defer resp.Body.Close()
 
-	err = ExtractMMDBFromTarGz(resp.Body, destDir)
-	if err != nil {
-		return err
+	if err = ExtractMMDBFromTarGz(resp.Body, destDir); err != nil {
+		return fmt.Errorf("failed to extract MMDB: %w", err)
 	}
 
-	err = FindMMDBAndMove(destDir, destDir, destFileName)
-	if err != nil {
-		return err
+	if err = FindMMDBAndMove(destDir, destDir, destFileName); err != nil {
+		return fmt.Errorf("failed to move MMDB: %w", err)
 	}
 
 	return nil
@@ -143,9 +139,15 @@ func ResolveUsingMaxMindAPI(ipAddress string) (IPAPIResponse, bool) {
 		return result, false
 	}
 
-	var lookupResult MaxMindResult
 	ip := net.ParseIP(ipAddress)
-	maxMindDB.Lookup(ip, &lookupResult)
+	if ip == nil {
+		return result, false
+	}
+
+	var lookupResult MaxMindResult
+	if err := maxMindDB.Lookup(ip, &lookupResult); err != nil {
+		return result, false
+	}
 
 	result.Country = lookupResult.Country.Names.EN
 	result.CountryCode = lookupResult.Country.ISOCode
